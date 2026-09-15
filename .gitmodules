@@ -1,0 +1,3 @@
+[submodule "mole"]
+	path = mole
+	url = https://github.com/csrc-sdsu/mole.git

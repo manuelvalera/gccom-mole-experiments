@@ -1,0 +1,404 @@
+--- /mnt/user-data/uploads/iwbcurv.py	2026-09-07 02:30:11.937102000 +0000
++++ iwbcurv.py	2026-09-07 15:06:05.338505858 +0000
+@@ -32,6 +32,23 @@
+   it is immune to the near-field contamination that biases a spherical-shell
+   peak-find.
+ 
++THE BED CONDITION (--bedmode, default 'constraint')
++  The old 'projection' mode was a PENALTY, and the three operators involved
++  were all different: robinBC2D's computational-eta normal derivative on the
++  left of L, the physical contravariant flux over h_eta on the right, and
++  bnd2's w = (z_xi/x_xi) u in bc_residual().  --bsc was one scalar trying to
++  reconcile operators that differ point by point on a curved bed, which it
++  cannot; hence a bed residual with a floor no bsc gets under, an accuracy
++  lower bound and a stability upper bound, and those bounds closing at
++  Lx = 6 km.
++  'constraint' puts the condition INTO L instead.  D*G is empty on the ghost
++  ring, so the bottom/top ghost rows are free to carry C*G, where C is the
++  bnd2 relation as a matrix; the rhs there carries C*u*/dt.  Then
++      C u = C(u* - dt G phi) = C u* - dt (C u*/dt) = 0
++  exactly, on any grid, with nothing to tune.  Left/right keep their Robin
++  rows so alpha still removes the constant nullvector.
++  'post' and 'none' remain as controls and bracket the answer.
++
+ GRID DIAGNOSTICS PRINTED BEFORE ANY PHYSICS
+   jacobian sign        -- must not change sign anywhere (folded grid)
+   hydrostatic r_x      -- Shchepetkin & McWilliams (2003) Eq. 2.10; > 1 means
+@@ -59,7 +76,6 @@
+ import numpy as np
+ import scipy.sparse as sp
+ import scipy.sparse.linalg as spl
+-from oct2py import Oct2Py
+ 
+ LX, D0, AB, LB = 3000.0, 1000.0, 20.0, 30.0   # defaults; --Lx/--D0 override
+ NBV, U0, TAUS = 0.007, 0.01, 100.0
+@@ -88,6 +104,36 @@
+         shape=tuple(oc.pull('sz').ravel().astype(int)))
+ 
+ 
++def splice_bed_rows(L, CG, bedidx, eq='auto'):
++    """Replace rows `bedidx` of L with the rows of CG (scaled).
++
++    Returns (L_new, bedsc).  The caller must scale the corresponding rhs
++    entries by the SAME bedsc; scaling an equation and its right-hand side by
++    the same number leaves the solution unchanged, which is what makes the
++    equilibration bookkeeping rather than a tuned coefficient.
++
++    Kept at module level so it can be tested without Octave or MOLE.
++    """
++    nc = L.shape[0]
++    nbed = CG.shape[0]
++    if bedidx.size != nbed:
++        raise ValueError(f"{bedidx.size} bed rows vs {nbed} constraints")
++    if len(np.unique(bedidx)) != nbed:
++        raise ValueError("bed row indices are not distinct")
++    L = L.tocsr(); CG = CG.tocsr()
++    if eq == 'auto':
++        rmax = np.abs(L).max(axis=1).toarray().ravel()
++        ref = np.median(rmax[rmax > 0])
++        cmax = np.abs(CG).max(axis=1).toarray().ravel()
++        bedsc = ref / np.maximum(cmax, 1e-300)
++    else:
++        bedsc = np.ones(nbed)
++    keep = np.ones(nc); keep[bedidx] = 0.0
++    Pb = sp.csr_matrix((np.ones(nbed), (bedidx, np.arange(nbed))),
++                       shape=(nc, nbed))
++    return (sp.diags(keep) @ L + Pb @ (sp.diags(bedsc) @ CG)).tocsr(), bedsc
++
++
+ def grid_diag(X, Z, nx, nz, phi_nh):
+     """X, Z are (xi, eta).  Returns True if the grid looks usable."""
+     xx = np.gradient(X, axis=0); xh = np.gradient(X, axis=1)
+@@ -155,14 +201,49 @@
+                     help='horizontal fit window in m; default is auto, set to '
+                          'the first bounce so reflections are excluded')
+     ap.add_argument('--grids', default=os.path.join(HERE, 'grids'))
++    ap.add_argument('--forcegrid', action='store_true',
++                    help='run even if the r_x check fails.  r_x is the '
++                         'Shchepetkin & McWilliams criterion for the HYDROSTATIC '
++                         'pressure-gradient force in sigma models; this solver is '
++                         'non-hydrostatic and takes its pressure from the Poisson '
++                         'projection, so r_x may not bind here.  Measured: r_x '
++                         'varied 0.070-0.709 at fixed dz changes the beam angle by '
++                         '<0.3 deg.  Use with the folded-Jacobian check still armed.')
+     ap.add_argument('--gridonly', action='store_true',
+                     help='print grid diagnostics and stop')
+     ap.add_argument('--beat', type=float, default=300.0)
+-    ap.add_argument('--bedmode', default='projection',
+-                    choices=['projection', 'post', 'none'],
+-                    help='how the bed no-flux BC is imposed')
++    ap.add_argument('--bedmode', default='constraint',
++                    choices=['constraint', 'projection', 'post', 'none'],
++                    help='how the bed no-flux BC is imposed.  '
++                         'constraint = the bed rows of L ARE the bed condition '
++                         '(hard, no free parameter).  projection = the old '
++                         'robinBC-row + physical-flux-rhs penalty, needs --bsc.  '
++                         'post/none are controls: post gives bed=0 with '
++                         'div~2e-3, none gives div~1e-17 with bed~1.7e-1.')
+     ap.add_argument('--bsc', type=float, default=1.0,
+-                    help='scale on the bed Neumann data (empirical)')
++                    help='scale on the bed Neumann data (empirical). '
++                         'Only used by --bedmode projection; the constraint '
++                         'mode has no such coefficient by construction.')
++    ap.add_argument('--lsl', type=float, default=0.10,
++                    help='sponge width as a fraction of Lx (was hardcoded Lx/10)')
++    ap.add_argument('--taus', type=float, default=100.0,
++                    help='sponge relaxation time in s (was hardcoded 100)')
++    ap.add_argument('--ab', type=float, default=20.0,
++                    help='ridge height in m.  At the default 20 m with dz=10 m '
++                         'the topography is TWO CELLS TALL, and r_x blocks '
++                         'refining eta -- so this is the only handle on how '
++                         'well the beam source is resolved.')
++    ap.add_argument('--lb', type=float, default=30.0, help='ridge half-width in m')
++    ap.add_argument('--order', type=int, default=2, choices=[2, 4, 6],
++                    help='MOLE operator order k.  HANDOFF sec 5 killed the '
++                         'numerical-dispersion hypothesis with a 4th-order run '
++                         '-- but that was cone3d; this solver hardcoded k=2 and '
++                         'the test was never run here.')
++    ap.add_argument('--bedeq', default='auto', choices=['auto', 'unit'],
++                    help='row equilibration of the constraint rows.  The '
++                         'solution is INVARIANT to this in exact arithmetic -- '
++                         'it exists only to keep splu happy, and running both '
++                         'is the test that it is not a disguised --bsc.')
+     ap.add_argument('--field', default='w', choices=['w', 'speed', 'ubc'],
+                     help='field used for the beam track (default w)')
+     ap.add_argument('--out', default=None)
+@@ -175,7 +256,7 @@
+     # by editing four .m files.
+     with open(os.path.join(g.grids, 'iwbridge', 'geom_over.m'), 'w') as fh:
+         fh.write("function [Lx, D0, ab, Lb] = geom_over()\n"
+-                 f"    Lx = {LX}; D0 = {D0}; ab = {AB}; Lb = {LB};\nend\n")
++                 f"    Lx = {LX}; D0 = {D0}; ab = {g.ab}; Lb = {g.lb};\nend\n")
+ 
+     # --N 0 removes stratification entirely.  The forcing frequency still
+     # needs a reference N to stay fixed, so omega is set from the default.
+@@ -185,7 +266,7 @@
+     phi_nh = np.degrees(np.arctan(np.sqrt(g.ratio**2 / (1 - g.ratio**2))))
+     phi_h = np.degrees(np.arctan(g.ratio))
+     print(f"\n=== iwbcurv  omega/N={g.ratio}  {g.nx}x{g.nz}  {g.nper} periods  "
+-          f"Lx={LX/1000:.1f} km  D0={D0:.0f} m  FULLY CURVILINEAR ===")
++          f"Lx={LX/1000:.1f} km  D0={D0:.0f} m  k={g.order}  FULLY CURVILINEAR ===")
+     print(f"  theory: nonhydrostatic {phi_nh:.2f} deg (Eq.30)   "
+           f"hydrostatic {phi_h:.2f} deg (Eq.31)")
+ 
+@@ -205,7 +286,27 @@
+               f"(bounce = {bounce:.0f} m)")
+ 
+     print(f"  [{el()}] generating grid (TFI, position-dependent beta) ...", flush=True)
+-    oc = Oct2Py(); oc.eval("warning('off','all'); more off;")
++    from oct2py import Oct2Py           # imported here so this module can be
++    oc = Oct2Py()                       # imported without Octave, for tests; oc.eval("warning('off','all'); more off;")
++    # Octave's addpath does NOT error on a directory that does not exist, and
++    # a MOLE path pointing one level too high (the repo root, or src/) fails
++    # much later as "error: 'gridGen' undefined" from inside oc.eval, which
++    # names neither the path nor the real problem.  Check it here instead.
++    _need = ['gridGen.m', 'grad2DCurv.m', 'div2DCurv.m', 'robinBC2D.m',
++             'interpol2D.m', 'jacobian2D.m']
++    _miss = [f for f in _need if not os.path.isfile(os.path.join(g.mole, f))]
++    if _miss:
++        oc.exit()
++        print(f"\n  *** --mole does not look like MOLE's src/matlab_octave:\n"
++              f"      {g.mole}\n"
++              f"      missing: {', '.join(_miss)}\n"
++              f"      It must be the directory CONTAINING gridGen.m -- usually\n"
++              f"      <mole-repo>/src/matlab_octave, not the repo root.\n")
++        for _root, _dirs, _files in os.walk(os.path.abspath(os.path.join(g.mole, '..', '..'))):
++            if 'gridGen.m' in _files:
++                print(f"      found gridGen.m in: {_root}\n")
++                break
++        return
+     oc.addpath(g.mole); oc.addpath(os.path.join(g.grids, 'iwbridge'))
+     here = os.getcwd(); os.chdir(g.grids)
+     try:
+@@ -220,10 +321,12 @@
+     if g.gridonly:
+         oc.exit()
+         print("\n  (--gridonly: stopping here)\n"); return
+-    if not ok:
++    if not ok and not g.forcegrid:
+         oc.exit()
+         print("\n  *** grid diagnostics failed -- fix the grid before running ***\n")
+         return
++    if not ok:
++        print("  [%s] --forcegrid: grid check FAILED, running anyway" % el())
+ 
+     # MOLE wants (eta, xi); gridGen returns (xi, eta).  Transposing two axes is
+     # an ODD permutation and flips the Jacobian sign, so this must be explicit.
+@@ -231,7 +334,7 @@
+     m, n = g.nx - 1, g.nz - 1
+     dxr, dzr = LX / m, D0 / n
+     oc.push('Xm', XM); oc.push('Zm', ZM)
+-    oc.eval(f"k=2; m={m}; n={n}; dx={dxr}; dz={dzr};")
++    oc.eval(f"k={g.order}; m={m}; n={n}; dx={dxr}; dz={dzr};")
+     oc.eval("J2=jacobian2D(k,Xm,Zm);")
+     J2 = oc.pull('J2').ravel()
+     print(f"  [{el()}] MOLE jacobian2D on the transposed grid: "
+@@ -244,17 +347,9 @@
+ 
+     nu_, nw_ = (m + 1) * n, m * (n + 1)
+     nc = (m + 2) * (n + 2)
+-    L = (D @ G + B).tocsc()
+-    print(f"  [{el()}] L: n={nc} nnz={L.nnz} ({L.nnz/nc:.1f}/row), factorising ...",
+-          flush=True)
+-    t = time.time(); lu = spl.splu(L)
+-    print(f"  [{el()}] splu {time.time()-t:.1f}s")
+-
+-    fk = np.random.default_rng(1).standard_normal(G.shape[0])
+-    rr = D @ fk
+-    dv = np.linalg.norm(D @ (fk - G @ lu.solve(rr))) / np.linalg.norm(rr)
+-    print(f"  [{el()}] divergence after projection {dv:.2e}  "
+-          f"{'OK' if dv < 1e-8 else '*** BROKEN ***'}")
++    # L is assembled further down, AFTER the bed constraint operator C exists:
++    # in --bedmode constraint the eta-boundary rows of L are rows of C*G, so
++    # the matrix cannot be built until C is.
+ 
+     # physical coordinates of the faces (arrays are (eta, xi) from here on)
+     # Face coordinates.  ARRAY ORDER MATTERS: u is indexed reshape(n, m+1) and
+@@ -268,7 +363,7 @@
+     Xu = 0.5 * (XM[:-1, :] + XM[1:, :]); xu = Xu.ravel()
+     assert xu.size == nu_ and xw.size == nw_, "face coordinate ordering mismatch"
+ 
+-    Lsl = LX / 10.0
++    Lsl = g.lsl * LX
+     slu = np.exp(-4 * np.minimum(np.abs(xu + LX/2), np.abs(xu - LX/2)) / Lsl)
+     slw = np.exp(-4 * np.minimum(np.abs(xw + LX/2), np.abs(xw - LX/2)) / Lsl)
+ 
+@@ -306,6 +401,50 @@
+         return ww
+ 
+     # ------------------------------------------------------------------
++    # C -- the bed condition as a MATRIX, built from the same bnd2 arrays that
++    # bc_residual() measures.  This is the whole point: the equation solved and
++    # the residual reported must be the SAME operator.  In the penalty scheme
++    # they were three different ones -- robinBC2D's computational-eta normal
++    # derivative on the left, the physical contravariant flux over hec on the
++    # right, and bnd2's w = rat*avg(u) in the check -- and --bsc was a single
++    # scalar trying to reconcile operators that differ point by point.  It
++    # cannot, which is why the bed residual has a floor no bsc gets under.
++    #
++    #     C [u; w] = 0    one row per bed/top face:
++    #     w_face - (z_xi/x_xi) * 0.5 * (u_left + u_right) = 0
++    #
++    # ARRAY ORDER: bnd2 already holds flat indices into the eta-major, xi-
++    # fastest u and w vectors (iu2 = arange(nu_).reshape(n, m+1), iw2 =
++    # arange(nw_).reshape(n+1, m)).  C is assembled from those indices
++    # directly, so there is no reshape anywhere in here to get wrong -- and
++    # the check below fails loudly if that is ever untrue.
++    # ------------------------------------------------------------------
++    _r, _rows, _cols, _vals = 0, [], [], []
++    for tgt, s1, s2, rat in bnd2:
++        rr_ = np.arange(_r, _r + tgt.size)
++        _rows += [rr_, rr_, rr_]
++        _cols += [nu_ + tgt, s1, s2]
++        _vals += [np.ones(tgt.size), -0.5 * rat, -0.5 * rat]
++        _r += tgt.size
++    nbed = _r
++    C = sp.csr_matrix((np.concatenate(_vals),
++                       (np.concatenate(_rows), np.concatenate(_cols))),
++                      shape=(nbed, nu_ + nw_))
++
++    # Fails loudly BEFORE the feature, not after (the sponge and the r_x
++    # stencil both cost hours because the check came second).
++    _rg = np.random.default_rng(7)
++    _uu, _ww = _rg.standard_normal(nu_), _rg.standard_normal(nw_)
++    _ref = np.concatenate([_ww[t_] - r_ * 0.5 * (_uu[a_] + _uu[b_])
++                           for t_, a_, b_, r_ in bnd2])
++    _err = np.abs(_ref - C @ np.concatenate([_uu, _ww])).max()
++    print(f"  [{el()}] C: {nbed} bed rows, {C.nnz} nnz; "
++          f"agrees with bc_residual loop to {_err:.2e}")
++    if _err > 1e-12:
++        raise SystemExit("  *** C does not reproduce the bnd2 residual -- "
++                         "index/array-order bug, stopping ***")
++
++    # ------------------------------------------------------------------
+     # Bed condition INSIDE the projection.
+     #
+     # Patching w after the solve satisfies the bed exactly and leaves
+@@ -345,6 +484,73 @@
+         bedrows.append(ic2[jg, 1:-1])
+         bednrm.append((nx_, nz_, iu2[jc, :-1], iu2[jc, 1:], iw2[jp_, :], met))
+ 
++    # ------------------------------------------------------------------
++    # ROW REPLACEMENT.
++    #
++    # D*G is zero on the ghost ring -- those rows exist only to carry boundary
++    # data, which is why L = D*G + robinBC works at all.  So the bottom/top
++    # ghost rows are free to carry the bed condition instead of a Robin row:
++    #
++    #     L[bedidx, :] = C*G          rhs[bedidx] = C*u* / dt
++    #
++    # and then, identically,
++    #
++    #     C u = C(u* - dt*G*phi) = C u* - dt*(C u*/dt) = 0
++    #
++    # to solver tolerance, for any grid, with nothing to tune.  The left and
++    # right ghost rows keep their Robin rows, so alpha still removes the
++    # constant nullvector and the system stays nonsingular -- do not drop it.
++    #
++    # Row count is exact: m*n interior + 2m bed + 2n sides + 4 corners = nc.
++    # ------------------------------------------------------------------
++    DG = (D @ G).tocsr()
++    L = (DG + B).tocsr()
++    bedidx = np.concatenate(bedrows)
++    bedsc = np.ones(nbed)
++
++    if g.bedmode == 'constraint':
++        if bedidx.size != nbed:
++            raise SystemExit(f"  *** {bedidx.size} bed ghost rows vs {nbed} "
++                             f"constraints -- pairing is wrong, stopping ***")
++        leak = np.abs(DG[bedidx]).max() if DG[bedidx].nnz else 0.0
++        print(f"  [{el()}] D*G on the bed ghost rows: max|entry| {leak:.2e} "
++              f"{'(empty, as expected)' if leak < 1e-12 else '*** NOT EMPTY -- a real equation is being discarded ***'}")
++
++        # Row equilibration only.  D*G rows scale like 1/dx^2 and C*G rows like
++        # 1/dx, so without it splu sees orders of magnitude of row imbalance.
++        # Scaling a row AND its rhs by the same number leaves the solution
++        # unchanged -- that is what makes this not a --bsc, and --bedeq unit is
++        # the test of it.
++        L, bedsc = splice_bed_rows(L, C @ G, bedidx, g.bedeq)
++        print(f"  [{el()}] constraint row equilibration: "
++              f"x{bedsc.min():.2e} .. {bedsc.max():.2e} "
++              f"(cancels out of the solution; check with --bedeq unit)")
++
++    L = L.tocsc()
++    print(f"  [{el()}] L: n={nc} nnz={L.nnz} ({L.nnz/nc:.1f}/row) "
++          f"bedmode={g.bedmode}, factorising ...", flush=True)
++    t = time.time(); lu = spl.splu(L)
++    print(f"  [{el()}] splu {time.time()-t:.1f}s")
++
++    # Static validation of the whole projection, before a single timestep.
++    # A random field is projected and BOTH conditions are measured.  If the
++    # constraint mode is right this reports bed ~1e-16 here, and no amount of
++    # time stepping can be needed to find that out.
++    fk = np.random.default_rng(1).standard_normal(G.shape[0])
++    rr = D @ fk
++    if g.bedmode == 'constraint':
++        rr[bedidx] = bedsc * (C @ fk)
++    pf = fk - G @ lu.solve(rr)
++    dv = np.linalg.norm(D @ pf) / np.linalg.norm(rr)
++    bd = np.abs(C @ pf).max() / np.abs(fk).max()
++    print(f"  [{el()}] static projection test: div {dv:.2e} "
++          f"{'OK' if dv < 1e-8 else '*** BROKEN ***'}   "
++          f"bed {bd:.2e} "
++          f"{'OK' if bd < 1e-8 else ('*** BROKEN ***' if g.bedmode == 'constraint' else '(not enforced in this mode)')}")
++    if g.bedmode == 'constraint' and not (dv < 1e-8 and bd < 1e-8):
++        raise SystemExit("  *** the constraint does not hold on a static "
++                         "projection -- nothing downstream is worth running ***")
++
+     def bed_rhs(us_, ws_, rhs_, bsc):
+         for tgt, (nx_, nz_, s1, s2, sw, met) in zip(bedrows, bednrm):
+             un = nx_ * 0.5 * (us_[s1] + us_[s2]) + nz_ * ws_[sw]
+@@ -354,6 +560,22 @@
+     dt = T / g.spp; nt = int(g.nper * T / dt)
+     print(f"  [{el()}] dt={dt:.2f} s  ({nt} steps, {g.spp}/period)  T={T:.1f} s")
+ 
++    # Sponge stability.  The relaxation -(u-ubc)/taus*sl is EXPLICIT, so
++    # dt/taus is a stability number and the sponge coefficient caps at 1 in
++    # the sponge core.  Measured: dt/taus = 1.0 still runs, 2.5 blows up to
++    # max|u| = 1.0, 5.0 to 5.1e+08 -- the sponge drives the divergence itself,
++    # the same mechanism as HANDOFF sec 4 item 4.  There was no guard, so this
++    # looked like a physics blow-up.  Refuse rather than run and mislead.
++    sponge_cfl = dt / g.taus
++    print(f"  [{el()}] sponge: Lsl={g.lsl*LX:.0f} m ({g.lsl:.2f} Lx)  "
++          f"taus={g.taus:.1f} s  taus/T={g.taus/T:.4f}  dt/taus={sponge_cfl:.2f} "
++          f"{'OK' if sponge_cfl <= 0.5 else ('MARGINAL' if sponge_cfl <= 1.0 else '*** UNSTABLE ***')}")
++    if sponge_cfl > 1.0:
++        print(f"\n  *** dt/taus = {sponge_cfl:.2f} > 1: the sponge relaxation is "
++              f"explicit and will drive a blow-up.\n      Raise --taus above "
++              f"{dt:.1f} s or raise --spp above {int(np.ceil(T/g.taus))}.\n")
++        return
++
+     # Instantaneous snapshot at the phase where u_bc = 0, matching Garcia et
+     # al. Fig 8 (t = 19.5T).  An rms average over ten periods sums the primary
+     # beam AND every reflection with equal weight, so weak reflections build
+@@ -391,10 +613,13 @@
+     for it in range(1, nt + 1):
+         t = it * dt
+         ubc = U0 * np.sin(om * t)
+-        us = u - dt * gp[:nu_] - dt * (u - ubc) / TAUS * slu
+-        ws = w - dt * gp[nu_:] + dt * (Ic_z @ b) - dt * w / TAUS * slw
+-        rhs = (D @ np.concatenate([us, ws])) / dt
+-        if g.bedmode == 'projection':
++        us = u - dt * gp[:nu_] - dt * (u - ubc) / g.taus * slu
++        ws = w - dt * gp[nu_:] + dt * (Ic_z @ b) - dt * w / g.taus * slw
++        usw = np.concatenate([us, ws])
++        rhs = (D @ usw) / dt
++        if g.bedmode == 'constraint':
++            rhs[bedidx] = bedsc * (C @ usw) / dt
++        elif g.bedmode == 'projection':
+             rhs = bed_rhs(us, ws, rhs, g.bsc)
+         gphi = G @ lu.solve(rhs)
+         u = us - dt * gphi[:nu_]
+@@ -408,8 +633,12 @@
+             rd, rb = bc_residual(u, w)
+             if rd < 1e-8 and rb < 1e-8:
+                 verdict = 'BOTH OK'
++            elif rd >= 1e-8 and rb >= 1e-8:
++                verdict = 'BOTH VIOLATED'
+             elif rd >= 1e-8:
+                 verdict = 'div VIOLATED'
++            elif g.bedmode == 'constraint':
++                verdict = 'bed VIOLATED -- the constraint is not holding'
+             else:
+                 verdict = 'bed approx (penalty)'
+             print("    [%s] consistency: div %.2e  bed %.2e   %s"

@@ -1,0 +1,12 @@
+name: mole
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - oct2py
+  - numpy
+  - scipy
+  - matplotlib
+  - pyamg          # algebraic multigrid -- needed once you go to 3D
+  - rasterio       # for the bathymetry GeoTIFFs
+  - pip

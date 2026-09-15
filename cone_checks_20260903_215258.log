@@ -1,0 +1,477 @@
+
+
+=================================================================
+RUN: baseline               a=64 sig=0.07 spg=0.05 nper=6
+started 21:52:58
+=================================================================
+
+
+=== cone3d cart  a=64  omega/N=0.6  nper=6  sig=[0.07]  spg=0.05  STOCK GI13 ===
+  GI13 : C:\Users\dap21\gccom-mole-experiments-2026\mole\src\matlab_octave\GI13.m
+  grid : 64^3   faces 798720   centres 287496
+  L    : nonsymmetry 2.26e-01   pin node 4487 (|u|=3.75e-02, centre would be 1.13e-03)   [33.7s]
+  PARDISO factorise : 6.1s
+  (factorisation done once, reused for every source width)
+  check: divergence after projection 5.906e-14  OK
+  dt   : 0.1745  (dt*N=0.175, stability limit 2)  360 steps for 6 periods, 60/period
+
+  --- sig=0.07: 4.5 cells wide, 6.4 source-widths of travel before the sponge ---
+  scheme: SSPRK104 predictor (lagged pressure) + incremental projection, 1 Poisson solve/step
+      t/T= 1.50  max|w|=6.691e-04  (38s)
+      t/T= 3.00  max|w|=7.380e-04  (73s)
+      t/T= 4.50  max|w|=7.624e-04  (108s)
+      t/T= 6.00  max|w|=7.260e-04  (143s)
+
+==============================================================
+  SUMMARY
+==============================================================
+
+>>>>>> source sig = 0.07
+
+  x-z slice through the source  (theory 36.9 deg)
+                          
+                          
+     .                    
+                          
+         .           .    
+          .         .     
+                          
+            . ... .       
+           ...:::...      
+            ..=*-..       
+            ..#@+..       
+            ..+#=..       
+           ...--:..       
+            .......       
+               .          
+          .        .      
+         .          ..    
+                          
+                          
+     .                    
+                          
+                          
+
+  angular profile, deg from horizontal   (peak should sit at 36.9)
+      0 #########
+      5 ##########
+     10 ##########
+     15 #################
+     20 ###########################
+     25 #####################################
+     30 #######################################
+     35 ##################################  <== theory
+     40 #####################################
+     45 ############################################
+     50 #############################################
+     55 #####################################
+     60 ############################
+     65 ########################
+     70 ########################
+     75 #############################
+     80 ##################################
+     85 ######################################
+     90 #####################################
+
+  CONE HALF-ANGLE  measured 45.00   theory 36.87   error +8.13 deg (+22.1%)
+
+
+
+=================================================================
+RUN: sponge pulled back     a=64 sig=0.07 spg=0.03 nper=6
+started 21:56:10
+=================================================================
+
+
+=== cone3d cart  a=64  omega/N=0.6  nper=6  sig=[0.07]  spg=0.03  STOCK GI13 ===
+  GI13 : C:\Users\dap21\gccom-mole-experiments-2026\mole\src\matlab_octave\GI13.m
+  grid : 64^3   faces 798720   centres 287496
+  L    : nonsymmetry 2.26e-01   pin node 4487 (|u|=3.75e-02, centre would be 1.13e-03)   [37.7s]
+  PARDISO factorise : 5.7s
+  (factorisation done once, reused for every source width)
+  check: divergence after projection 5.906e-14  OK
+  dt   : 0.1745  (dt*N=0.175, stability limit 2)  360 steps for 6 periods, 60/period
+
+  --- sig=0.07: 4.5 cells wide, 6.7 source-widths of travel before the sponge ---
+  scheme: SSPRK104 predictor (lagged pressure) + incremental projection, 1 Poisson solve/step
+      t/T= 1.50  max|w|=6.691e-04  (36s)
+      t/T= 3.00  max|w|=7.333e-04  (71s)
+      t/T= 4.50  max|w|=7.719e-04  (105s)
+      t/T= 6.00  max|w|=7.260e-04  (140s)
+
+==============================================================
+  SUMMARY
+==============================================================
+
+>>>>>> source sig = 0.07
+
+  x-z slice through the source  (theory 36.9 deg)
+                          
+                         .
+     .       ....        .
+             ....         
+        ..           .    
+         ..        ..     
+           .  ..   .      
+              ...         
+           ...::....      
+            ..=*-..       
+            ..#@=..       
+            ..+#=..       
+           ...:-:...      
+              ...         
+              ...         
+          .        ..     
+         .          ..    
+        .     ...     .   
+     .       ....        .
+                         .
+                          
+                          
+
+  angular profile, deg from horizontal   (peak should sit at 36.9)
+      0 ##############
+      5 ###############
+     10 ##############
+     15 #####################
+     20 #############################
+     25 ####################################
+     30 ###################################
+     35 ############################  <== theory
+     40 ####################################
+     45 #############################################
+     50 ##########################################
+     55 ################################
+     60 ######################
+     65 #####################
+     70 #########################
+     75 #################################
+     80 ######################################
+     85 ###########################################
+     90 #########################################
+
+  CONE HALF-ANGLE  measured 44.50   theory 36.87   error +7.63 deg (+20.7%)
+
+
+
+=================================================================
+RUN: more cells on source   a=80 sig=0.07 spg=0.05 nper=6
+started 21:59:21
+=================================================================
+
+
+=== cone3d cart  a=80  omega/N=0.6  nper=6  sig=[0.07]  spg=0.05  STOCK GI13 ===
+  GI13 : C:\Users\dap21\gccom-mole-experiments-2026\mole\src\matlab_octave\GI13.m
+  grid : 80^3   faces 1555200   centres 551368
+  L    : nonsymmetry 2.25e-01   pin node 538002 (|u|=3.09e-02, centre would be 1.36e-03)   [70.2s]
+  PARDISO factorise : 26.8s
+  (factorisation done once, reused for every source width)
+  check: divergence after projection 3.396e-14  OK
+  dt   : 0.1745  (dt*N=0.175, stability limit 2)  360 steps for 6 periods, 60/period
+
+  --- sig=0.07: 5.6 cells wide, 6.4 source-widths of travel before the sponge ---
+  scheme: SSPRK104 predictor (lagged pressure) + incremental projection, 1 Poisson solve/step
+      t/T= 1.50  max|w|=6.733e-04  (56s)
+      t/T= 3.00  max|w|=7.450e-04  (109s)
+      t/T= 4.50  max|w|=7.671e-04  (162s)
+      t/T= 6.00  max|w|=7.267e-04  (215s)
+
+==============================================================
+  SUMMARY
+==============================================================
+
+>>>>>> source sig = 0.07
+
+  x-z slice through the source  (theory 36.9 deg)
+                                
+                                
+                                
+                                
+      .                      .  
+                                
+          .              .      
+                                
+                                
+                                
+             ..........         
+             ...::::...         
+              ..-++-..          
+              ..=%%=..          
+              ..=%%=..          
+              ..-++-..          
+             ...::::...         
+             ..........         
+                                
+                                
+                                
+          .              .      
+                                
+      .                      .  
+                                
+                                
+                                
+                                
+
+  angular profile, deg from horizontal   (peak should sit at 36.9)
+      0 ###########
+      5 #########
+     10 ##########
+     15 #################
+     20 ############################
+     25 #######################################
+     30 #########################################
+     35 #####################################  <== theory
+     40 #####################################
+     45 #############################################
+     50 ############################################
+     55 #####################################
+     60 ############################
+     65 #########################
+     70 ##########################
+     75 ##############################
+     80 ###################################
+     85 ######################################
+     90 #######################################
+
+  CONE HALF-ANGLE  measured 45.00   theory 36.87   error +8.13 deg (+22.1%)
+
+
+
+=================================================================
+RUN: more travel            a=80 sig=0.056 spg=0.05 nper=6
+started 22:04:45
+=================================================================
+
+
+=== cone3d cart  a=80  omega/N=0.6  nper=6  sig=[0.056]  spg=0.05  STOCK GI13 ===
+  GI13 : C:\Users\dap21\gccom-mole-experiments-2026\mole\src\matlab_octave\GI13.m
+  grid : 80^3   faces 1555200   centres 551368
+  L    : nonsymmetry 2.25e-01   pin node 538002 (|u|=3.09e-02, centre would be 1.36e-03)   [54.5s]
+  PARDISO factorise : 25.7s
+  (factorisation done once, reused for every source width)
+  check: divergence after projection 3.399e-14  OK
+  dt   : 0.1745  (dt*N=0.175, stability limit 2)  360 steps for 6 periods, 60/period
+
+  --- sig=0.056: 4.5 cells wide, 8.0 source-widths of travel before the sponge ---
+  scheme: SSPRK104 predictor (lagged pressure) + incremental projection, 1 Poisson solve/step
+      t/T= 1.50  max|w|=6.745e-04  (85s)
+      t/T= 3.00  max|w|=7.362e-04  (168s)
+      t/T= 4.50  max|w|=7.599e-04  (241s)
+      t/T= 6.00  max|w|=7.367e-04  (321s)
+
+==============================================================
+  SUMMARY
+==============================================================
+
+>>>>>> source sig = 0.056
+
+  x-z slice through the source  (theory 36.9 deg)
+                                
+                                
+                                
+                                
+                                
+                                
+                                
+                                
+                                
+                                
+              .  ..  .          
+              ...::...          
+               .:==:.           
+               .-%%-.           
+               .-%%-.           
+               .:==:.           
+              ...::...          
+              .  ..  .          
+                                
+                                
+                                
+                                
+                                
+                                
+                                
+                                
+                                
+                                
+
+  angular profile, deg from horizontal   (peak should sit at 36.9)
+      0 ######
+      5 #####
+     10 #####
+     15 ########
+     20 ##################
+     25 #############################
+     30 #####################################
+     35 ######################################  <== theory
+     40 ########################################
+     45 #############################################
+     50 #######################################
+     55 ##########################
+     60 #################
+     65 #############
+     70 ##############
+     75 ##################
+     80 ######################
+     85 #########################
+     90 ##########################
+
+  CONE HALF-ANGLE  measured 43.75   theory 36.87   error +6.88 deg (+18.7%)
+
+
+
+=================================================================
+RUN: both levers            a=96 sig=0.056 spg=0.03 nper=6
+started 22:11:37
+=================================================================
+
+
+=== cone3d cart  a=96  omega/N=0.6  nper=6  sig=[0.056]  spg=0.03  STOCK GI13 ===
+  GI13 : C:\Users\dap21\gccom-mole-experiments-2026\mole\src\matlab_octave\GI13.m
+  grid : 96^3   faces 2681856   centres 941192
+  L    : nonsymmetry 2.25e-01   pin node 931544 (|u|=2.70e-02, centre would be 7.47e-04)   [129.5s]
+  PARDISO factorise : 86.0s
+  (factorisation done once, reused for every source width)
+  check: divergence after projection 4.975e-14  OK
+  dt   : 0.1745  (dt*N=0.175, stability limit 2)  360 steps for 6 periods, 60/period
+
+  --- sig=0.056: 5.4 cells wide, 8.4 source-widths of travel before the sponge ---
+  scheme: SSPRK104 predictor (lagged pressure) + incremental projection, 1 Poisson solve/step
+      t/T= 1.50  max|w|=6.782e-04  (173s)
+      t/T= 3.00  max|w|=7.395e-04  (395s)
+      t/T= 4.50  max|w|=7.711e-04  (588s)
+      t/T= 6.00  max|w|=7.350e-04  (777s)
+
+==============================================================
+  SUMMARY
+==============================================================
+
+>>>>>> source sig = 0.056
+
+  x-z slice through the source  (theory 36.9 deg)
+                             
+                             
+                             
+                             
+                             
+                             
+                             
+                             
+                             
+               ...           
+             ..:-:..         
+               -#=.          
+              .=@*..         
+               -*=.          
+             ...::..         
+                .            
+                             
+                             
+                             
+                             
+                             
+                             
+                             
+                             
+                             
+
+  angular profile, deg from horizontal   (peak should sit at 36.9)
+      0 #########
+      5 ########
+     10 #######
+     15 ##########
+     20 #####################
+     25 ###############################
+     30 #####################################
+     35 ####################################  <== theory
+     40 ########################################
+     45 #############################################
+     50 ####################################
+     55 ######################
+     60 ###############
+     65 #############
+     70 #################
+     75 #######################
+     80 ############################
+     85 ###############################
+     90 #################################
+
+  CONE HALF-ANGLE  measured 43.25   theory 36.87   error +6.38 deg (+17.3%)
+
+
+
+=================================================================
+RUN: longer run             a=64 sig=0.07 spg=0.05 nper=12
+started 22:28:32
+=================================================================
+
+
+=== cone3d cart  a=64  omega/N=0.6  nper=12  sig=[0.07]  spg=0.05  STOCK GI13 ===
+  GI13 : C:\Users\dap21\gccom-mole-experiments-2026\mole\src\matlab_octave\GI13.m
+  grid : 64^3   faces 798720   centres 287496
+  L    : nonsymmetry 2.26e-01   pin node 4487 (|u|=3.75e-02, centre would be 1.13e-03)   [40.6s]
+  PARDISO factorise : 6.3s
+  (factorisation done once, reused for every source width)
+  check: divergence after projection 5.906e-14  OK
+  dt   : 0.1745  (dt*N=0.175, stability limit 2)  720 steps for 12 periods, 60/period
+
+  --- sig=0.07: 4.5 cells wide, 6.4 source-widths of travel before the sponge ---
+  scheme: SSPRK104 predictor (lagged pressure) + incremental projection, 1 Poisson solve/step
+      t/T= 3.00  max|w|=7.380e-04  (76s)
+      t/T= 6.00  max|w|=7.260e-04  (152s)
+      t/T= 9.00  max|w|=7.274e-04  (224s)
+      t/T=12.00  max|w|=7.159e-04  (294s)
+
+==============================================================
+  SUMMARY
+==============================================================
+
+>>>>>> source sig = 0.07
+
+  x-z slice through the source  (theory 36.9 deg)
+                          
+     .                    
+     .        ...         
+              ...         
+        ..          ..    
+          ..       ..     
+           .              
+            .             
+           ...:-:...      
+           ...+*-..       
+            .:#@+..       
+            ..+%=..       
+           ...-=:...      
+           .........      
+                          
+          ..       .      
+         ..         ..    
+        .     ...     .   
+              ...       . 
+     .                    
+                          
+                          
+
+  angular profile, deg from horizontal   (peak should sit at 36.9)
+      0 #############
+      5 #############
+     10 #############
+     15 ##################
+     20 #########################
+     25 ##################################
+     30 #####################################
+     35 #################################  <== theory
+     40 ##################################
+     45 ##########################################
+     50 #############################################
+     55 #######################################
+     60 #############################
+     65 #########################
+     70 #########################
+     75 ############################
+     80 #################################
+     85 ####################################
+     90 #####################################
+
+  CONE HALF-ANGLE  measured 47.50   theory 36.87   error +10.63 deg (+28.8%)
+
