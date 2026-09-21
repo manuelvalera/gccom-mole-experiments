@@ -1,5 +1,7 @@
 # gccom-mole-experiments
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.22884121.svg)](https://doi.org/10.5281/zenodo.22884121)
+
 Verification and validation of a two-dimensional, non-hydrostatic, Boussinesq
 internal-wave solver on **fully curvilinear grids**, built on the
 [MOLE](https://github.com/csrc-sdsu/mole) mimetic operator library. It is a
@@ -10,7 +12,7 @@ benchmark of Garcia et al. (2019), *J. Comput. Sci.* 30:143–156, §3.3.
 The solver (`iwbcurv.py`) is **linear**: there is no advection term, so every
 result scales with the forcing amplitude.
 
-## Status (v1.0.0)
+## Status (v1.0.1)
 
 **Verified against an exact solution.** A free standing internal wave
 (`--seiche I J`) in a flat rectangular box on a curvilinear grid converges at
@@ -101,7 +103,7 @@ logs are included.
 
 ## Citation
 
-See `CITATION.cff`, or the DOI badge once minted. Please cite Garcia et al.
+Cite the concept DOI, which always resolves to the latest version: [10.5281/zenodo.22884121](https://doi.org/10.5281/zenodo.22884121). See also `CITATION.cff`. Please cite Garcia et al.
 (2019) for the benchmark and the MOLE JOSS paper (Corbino, Dumett & Castillo,
 2024) for the operator library.
 
