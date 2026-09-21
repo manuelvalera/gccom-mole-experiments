@@ -1,0 +1,18 @@
+cff-version: 1.2.0
+message: "If you use this software or its results, please cite it as below."
+title: "gccom-mole-experiments: verification and validation of a mimetic internal-wave solver on fully curvilinear grids"
+authors:
+  - family-names: Valera
+    given-names: Manuel
+    orcid: "https://orcid.org/0000-0000-0000-0000"   # REPLACE with your ORCID, or delete this line
+type: software
+license: GPL-3.0-or-later
+repository-code: "https://github.com/manuelvalera/gccom-mole-experiments"
+version: 1.0.0
+date-released: 2026-09-21
+keywords:
+  - mimetic operators
+  - internal waves
+  - curvilinear grids
+  - ocean modeling
+  - verification and validation

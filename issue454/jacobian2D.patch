@@ -1,0 +1,20 @@
+diff --git a/src/octave/jacobian2D.m b/src/octave/jacobian2D.m
+index c4f4466..4872a1e 100644
+--- a/src/octave/jacobian2D.m
++++ b/src/octave/jacobian2D.m
+@@ -30,6 +30,7 @@ function [J, Xe, Xn, Ye, Yn] = jacobian2D(k, X, Y, dc, nc)
+               "jacobian2D expects 3 or 5 arguments")
+     elseif nargin == 3
+         [J,Xe,Xn,Ye,Yn] = jacobian2DLegacy(k,X,Y);
++        checkGridOrientation(J, 'jacobian2D');
+         return;
+     end
+ 
+@@ -90,4 +91,6 @@ function [J, Xe, Xn, Ye, Yn] = jacobian2D(k, X, Y, dc, nc)
+ 
+     J = Xe .* Yn - Xn .* Ye;
+ 
++    checkGridOrientation(J, 'jacobian2D');
++
+ end
+\ No newline at end of file

@@ -1,0 +1,28 @@
+﻿CMD iwbcurv.py --mole C:\Users\dap21\gccom-mole-experiments-2026\mole\src\octave --beat 9999 --ab 0 --bulge 0 --Lx 6000 --nx 192 --nz 76 --seiche 4 2 --nper 40 --spp 400 --alpha 1e-6
+
+=== iwbcurv  omega/N=0.6  192x76  40 periods  Lx=6.0 km  D0=1000 m  k=2  FULLY CURVILINEAR ===
+  theory: nonhydrostatic 36.87 deg (Eq.30)   hydrostatic 30.96 deg (Eq.31)
+  window: auto [200, 933] m (bounce = 1333 m; keeps the fit inside the first bounce)
+  [00:00] generating grid (TFI, position-dependent beta) ...
+  [00:08] jacobian  : ALL +   |J| 337.8 .. 718.9
+  [00:08] grid angle: 81.6 - 98.4 deg  (90 = orthogonal)
+  [00:08] xi-line wander top-to-bottom: 147.7 m  -> FULLY CURVILINEAR
+  [00:08] r_x       : max 0.000  median 0.000  OK (<1)
+  [00:08] resolution: dx=31.4 m  dz=13.3 m  aspect 0.424
+  [00:08] lepticity : h_e=551 m  lambda=dx/h_e=0.0570  Gamma~0.0032  OK (<<1)
+  [00:08] beam      : slope 0.7500, bounce 1.33 km, 4.5 bounces across the domain
+  [00:08] MOLE jacobian2D on the transposed grid: ALL +
+  [00:10] bottom/top BC: w = (z_xi/x_xi) u   |slope| max 0.0000
+  [00:10] C: 382 bed rows, 1146 nnz; agrees with bc_residual loop to 0.00e+00
+  [00:10] D*G on the bed ghost rows: max|entry| 0.00e+00 (empty, as expected)
+  [00:10] constraint row equilibration: x6.07e-02 .. 6.08e-02 (cancels out of the solution; check with --bedeq unit)
+  [00:10] L: n=14861 nnz=268164 (18.0/row) bedmode=constraint, factorising ...
+  [00:10] splu 0.1s
+  [00:10] static projection test: div 2.08e-12 OK   bed 2.96e-12 OK
+  [00:10] seiche mode (4,2): exact omega = 2.213594e-03 1/s  T = 2838.45 s   dt = 7.096 s   16000 steps
+  [00:10] initial field projected: div 2.52e-16  bed 1.76e-15
+  [00:59] crossings 80  half-period 1420.3240 +/- 0.0122 s
+
+  SEICHE  omega_num = 2.211884e-03   exact = 2.213594e-03   relative error = -7.7245e-04
+  grid 192x76  dx=31.41 m  dz=13.33 m  spp=400
+

@@ -1,0 +1,40 @@
+﻿
+=== iwbcurv  omega/N=0.6  384x151  20 periods  Lx=6.0 km  D0=1000 m  k=2  FULLY CURVILINEAR ===
+  theory: nonhydrostatic 36.87 deg (Eq.30)   hydrostatic 30.96 deg (Eq.31)
+  window: [133, 1000] m  (bounce = 1333 m)
+  [00:00] generating grid (TFI, position-dependent beta) ...
+  [00:22] jacobian  : ALL +   |J| 78.04 .. 180.3
+  [00:22] grid angle: 61.7 - 118.3 deg  (90 = orthogonal)
+  [00:22] xi-line wander top-to-bottom: 147.7 m  -> FULLY CURVILINEAR
+  [00:22] r_x       : max 0.755  median 0.000  OK (<1)
+  [00:22] resolution: dx=15.7 m  dz=6.7 m  aspect 0.426
+  [00:22] lepticity : h_e=551 m  lambda=dx/h_e=0.0284  Gamma~0.0008  OK (<<1)
+  [00:22] beam      : slope 0.7500, bounce 1.33 km, 4.5 bounces across the domain
+  [00:22] MOLE jacobian2D on the transposed grid: ALL +
+  [00:25] bottom/top BC: w = (z_xi/x_xi) u   |slope| max 0.3509
+  [00:25] C: 766 bed rows, 2298 nnz; agrees with bc_residual loop to 2.22e-16
+  [00:25] D*G on the bed ghost rows: max|entry| 0.00e+00 (empty, as expected)
+  [00:25] constraint row equilibration: x1.18e-01 .. 1.30e-01 (cancels out of the solution; check with --bedeq unit)
+  [00:25] L: n=58520 nnz=1087629 (18.6/row) bedmode=constraint, factorising ...
+  [00:25] splu 0.9s
+  [00:25] static projection test: div 1.87e-14 OK   bed 2.76e-14 OK
+  [00:25] dt=12.47 s  (2400 steps, 120/period)  T=1496.0 s
+  [00:25] sponge: Lsl=1200 m (0.20 Lx)  taus=49.9 s  taus/T=0.0333  dt/taus=0.25 OK
+    [00:25 elapsed] time loop: 2400 steps
+    [00:34] consistency: div 8.90e-17  bed 1.08e-15   BOTH OK
+    [00:34] t/T=  4.0  max|u|=1.128e-02  max|w|=3.500e-03
+    [00:43] consistency: div 8.93e-17  bed 9.61e-16   BOTH OK
+    [00:43] t/T=  8.0  max|u|=9.223e-03  max|w|=3.821e-03
+    [00:52] consistency: div 8.87e-17  bed 1.14e-15   BOTH OK
+    [00:52] t/T= 12.0  max|u|=9.276e-03  max|w|=3.684e-03
+    [01:01] consistency: div 8.88e-17  bed 1.11e-15   BOTH OK
+    [01:01] t/T= 16.0  max|u|=9.195e-03  max|w|=3.654e-03
+    [01:11] consistency: div 8.86e-17  bed 9.82e-16   BOTH OK
+    [01:11] t/T= 20.0  max|u|=9.016e-03  max|w|=3.703e-03
+
+  fit over |x| in [133,1000] m, 134 points, rms residual 2.5 m
+  field: max/mean 16.0  (>>5 means a coherent beam; ~5 means reflections dominate)
+  BEAM ANGLE  measured 37.57   nonhydrostatic 36.87   hydrostatic 30.96   error +0.70 deg (+1.9%)
+
+  total wall time 01:11
+

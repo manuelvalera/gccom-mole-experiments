@@ -1,0 +1,50 @@
+﻿
+=== iwbcurv  omega/N=0.2  1024x201  20 periods  Lx=12.0 km  D0=1000 m  k=2  FULLY CURVILINEAR ===
+  theory: nonhydrostatic 11.54 deg (Eq.30)   hydrostatic 11.31 deg (Eq.31)
+  window: [490, 3184] m  (bounce = 4899 m)
+  [00:00] generating grid (TFI, position-dependent beta) ...
+python.exe : qt.qpa.screen: "Unable to open monitor interface to \\\\.\\DISPLAY1:" "The operation completed 
+successfully."
+At C:\Users\dap21\gccom-mole-experiments-2026\paper_repro.ps1:89 char:5
++     & python @cmd 2>&1 | Out-File -FilePath $log -Encoding utf8
++     ~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (qt.qpa.screen: ... successfully.":String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+qt.qpa.screen: "Unable to open monitor interface to \\\\.\\DISPLAY1:" "The operation completed successfully."
+  [01:13] jacobian  : ALL +   |J| 45.25 .. 101.6
+  [01:13] grid angle: 56.0 - 124.0 deg  (90 = orthogonal)
+  [01:13] xi-line wander top-to-bottom: 295.4 m  -> FULLY CURVILINEAR
+  [01:13] r_x       : max 0.776  median 0.000  OK (<1)
+  [01:13] resolution: dx=11.7 m  dz=5.0 m  aspect 0.426
+  [01:13] lepticity : h_e=551 m  lambda=dx/h_e=0.0213  Gamma~0.0005  OK (<<1)
+  [01:13] beam      : slope 0.2041, bounce 4.90 km, 2.4 bounces across the domain
+  [01:14] MOLE jacobian2D on the transposed grid: ALL +
+  [01:17] bottom/top BC: w = (z_xi/x_xi) u   |slope| max 0.3795
+  [01:17] C: 2046 bed rows, 6138 nnz; agrees with bc_residual loop to 1.11e-16
+  [01:17] D*G on the bed ghost rows: max|entry| 0.00e+00 (empty, as expected)
+  [01:17] constraint row equilibration: x1.56e-01 .. 1.72e-01 (cancels out of the solution; check with --bedeq unit)
+  [01:17] L: n=207050 nnz=3757844 (18.1/row) bedmode=constraint, factorising ...
+  [01:21] splu 4.2s
+  [01:21] static projection test: div 6.49e-14 OK   bed 1.56e-13 OK
+  [01:21] dt=37.40 s  (2400 steps, 120/period)  T=4488.0 s
+  [01:21] sponge: Lsl=2400 m (0.20 Lx)  taus=149.6 s  taus/T=0.0333  dt/taus=0.25 OK
+    [01:21 elapsed] time loop: 2400 steps
+    [02:13] consistency: div 3.50e-16  bed 1.46e-15   BOTH OK
+    [02:13] t/T=  4.0  max|u|=1.959e-02  max|w|=8.133e-03
+    [03:02] consistency: div 3.45e-16  bed 1.92e-15   BOTH OK
+    [03:02] t/T=  8.0  max|u|=1.908e-02  max|w|=6.681e-03
+    [03:45] consistency: div 3.42e-16  bed 2.24e-15   BOTH OK
+    [03:45] t/T= 12.0  max|u|=1.990e-02  max|w|=6.017e-03
+    [04:30] consistency: div 3.40e-16  bed 2.40e-15   BOTH OK
+    [04:30] t/T= 16.0  max|u|=2.031e-02  max|w|=5.975e-03
+    [05:16] consistency: div 3.39e-16  bed 1.81e-15   BOTH OK
+    [05:16] t/T= 20.0  max|u|=2.049e-02  max|w|=6.039e-03
+
+  fit over |x| in [490,3184] m, 526 points, rms residual 3.0 m
+  field: max/mean 30.4  (>>5 means a coherent beam; ~5 means reflections dominate)
+  BEAM ANGLE  measured 11.97   nonhydrostatic 11.54   hydrostatic 11.31   error +0.43 deg (+3.7%)
+  saved paper-logs\bounce0.2.npz
+
+  total wall time 05:16
+

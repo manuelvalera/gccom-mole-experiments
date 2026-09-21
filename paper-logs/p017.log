@@ -1,0 +1,15 @@
+﻿python.exe : usage: iwbcurv.py [-h] --mole MOLE [--Lx LX] [--D0 D0] [--nx NX] [--nz NZ]
+At C:\Users\dap21\gccom-mole-experiments-2026\paper_repro.ps1:73 char:5
++     & python @cmd 2>&1 | Out-File -FilePath $log -Encoding utf8
++     ~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (usage: iwbcurv....x NX] [--nz NZ]:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+                  [--ratio RATIO] [--nper NPER] [--spp SPP] [--alpha ALPHA]
+                  [--N N] [--bt BT] [--bb BB] [--win WIN WIN] [--grids GRIDS]
+                  [--forcegrid] [--gridonly] [--beat BEAT]
+                  [--bedmode {constraint,projection,post,none}] [--bsc BSC]
+                  [--lsl LSL] [--taus TAUS] [--ab AB] [--lb LB]
+                  [--order {2,4,6}] [--bedeq {auto,unit}]
+                  [--field {w,speed,ubc}] [--out OUT]
+iwbcurv.py: error: argument --spp: expected one argument

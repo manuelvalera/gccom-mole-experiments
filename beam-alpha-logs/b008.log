@@ -1,0 +1,41 @@
+﻿CMD iwbcurv.py --mole C:\Users\dap21\gccom-mole-experiments-2026\mole\src\octave --beat 9999 --Lx 6000 --nx 640 --nz 251 --ratio 0.6 --nper 20 --spp 120 --lsl 0.20 --taus 49.87 --win 133 1000 --alpha 1e-6 --forcegrid
+
+=== iwbcurv  omega/N=0.6  640x251  20 periods  Lx=6.0 km  D0=1000 m  k=2  FULLY CURVILINEAR ===
+  theory: nonhydrostatic 36.87 deg (Eq.30)   hydrostatic 30.96 deg (Eq.31)
+  window: [133, 1000] m  (bounce = 1333 m)
+  [00:00] generating grid (TFI, position-dependent beta) ...
+  [01:11] jacobian  : ALL +   |J| 28.06 .. 64.98
+  [01:11] grid angle: 61.7 - 118.3 deg  (90 = orthogonal)
+  [01:11] xi-line wander top-to-bottom: 147.7 m  -> FULLY CURVILINEAR
+  [01:11] r_x       : max 0.780  median 0.000  OK (<1)
+  [01:11] resolution: dx=9.4 m  dz=4.0 m  aspect 0.426
+  [01:11] lepticity : h_e=551 m  lambda=dx/h_e=0.0170  Gamma~0.0003  OK (<<1)
+  [01:11] beam      : slope 0.7500, bounce 1.33 km, 4.5 bounces across the domain
+  [01:12] MOLE jacobian2D on the transposed grid: ALL +
+  [01:16] bottom/top BC: w = (z_xi/x_xi) u   |slope| max 0.3894
+  [01:16] C: 1278 bed rows, 3834 nnz; agrees with bc_residual loop to 5.55e-17
+  [01:16] D*G on the bed ghost rows: max|entry| 0.00e+00 (empty, as expected)
+  [01:16] constraint row equilibration: x1.96e-01 .. 2.16e-01 (cancels out of the solution; check with --bedeq unit)
+  [01:16] L: n=161532 nnz=2951702 (18.3/row) bedmode=constraint, factorising ...
+  [01:21] splu 5.5s
+  [01:21] static projection test: div 2.77e-13 OK   bed 1.51e-12 OK
+  [01:21] dt=12.47 s  (2400 steps, 120/period)  T=1496.0 s
+  [01:21] sponge: Lsl=1200 m (0.20 Lx)  taus=49.9 s  taus/T=0.0333  dt/taus=0.25 OK
+    [01:21 elapsed] time loop: 2400 steps
+    [02:09] consistency: div 3.10e-16  bed 1.52e-15   BOTH OK
+    [02:09] t/T=  4.0  max|u|=1.084e-02  max|w|=4.646e-03
+    [02:55] consistency: div 3.08e-16  bed 1.23e-15   BOTH OK
+    [02:55] t/T=  8.0  max|u|=1.394e-02  max|w|=4.705e-03
+    [03:43] consistency: div 3.07e-16  bed 1.24e-15   BOTH OK
+    [03:43] t/T= 12.0  max|u|=1.205e-02  max|w|=3.996e-03
+    [04:35] consistency: div 3.06e-16  bed 1.57e-15   BOTH OK
+    [04:35] t/T= 16.0  max|u|=1.173e-02  max|w|=4.425e-03
+    [05:29] consistency: div 3.05e-16  bed 1.75e-15   BOTH OK
+    [05:29] t/T= 20.0  max|u|=1.076e-02  max|w|=4.481e-03
+
+  fit over |x| in [133,1000] m, 226 points, rms residual 2.6 m
+  field: max/mean 19.6  (>>5 means a coherent beam; ~5 means reflections dominate)
+  BEAM ANGLE  measured 36.58   nonhydrostatic 36.87   hydrostatic 30.96   error -0.29 deg (-0.8%)
+
+  total wall time 05:29
+

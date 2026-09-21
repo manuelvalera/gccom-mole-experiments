@@ -190,7 +190,14 @@ def main():
     ap.add_argument('--ratio', type=float, default=0.6)
     ap.add_argument('--nper', type=int, default=20)
     ap.add_argument('--spp', type=int, default=60)
-    ap.add_argument('--alpha', type=float, default=1e-4)
+    ap.add_argument('--alpha', type=float, default=1e-6,
+                    help='Robin coefficient on the lateral pressure rows. It only\n'
+                         'regularises an otherwise pure-Neumann (singular) Poisson\n'
+                         'system, so it should be as small as the factorisation\n'
+                         'tolerates. The old default 1e-4 dominated the seiche\n'
+                         'frequency error (+4.3e-3, growing under refinement);\n'
+                         'at 1e-6 the seiche converges at second order to zero.\n'
+                         'Beam angles move by <=0.1 deg between the two.')
     ap.add_argument('--N', type=float, default=NBV,
                     help='buoyancy frequency; --N 0 removes stratification '
                          'entirely (no internal waves) to test whether the '
@@ -224,6 +231,30 @@ def main():
                     help='scale on the bed Neumann data (empirical). '
                          'Only used by --bedmode projection; the constraint '
                          'mode has no such coefficient by construction.')
+    ap.add_argument('--seiche', type=int, nargs=2, metavar=('I', 'J'),
+                    default=None,
+                    help='run a free standing internal wave of horizontal mode '
+                         'I and vertical mode J instead of the tidal problem, '
+                         'and report the frequency error against the exact '
+                         'omega = N k / sqrt(k^2 + p^2).  Requires --ab 0 '
+                         '--bulge 0.  Needs no forcing, no sponge, no fit '
+                         'window and no beam tracker, so it isolates the core '
+                         'discretization from everything the beam angle '
+                         'depends on.')
+    ap.add_argument('--bulge', type=float, default=0.15,
+                    help='side-wall bulge as a fraction of D0.  0 makes the '
+                         'DOMAIN a rectangle while leaving the GRID curvilinear '
+                         '(the xi-lines still tilt, because betaOf stretches '
+                         'the top and bottom differently) -- which is what the '
+                         'seiche test needs, since the analytic mode assumes a '
+                         'rectangular box but we still want the metrics exercised.')
+    ap.add_argument('--u0', type=float, default=0.01,
+                    help='barotropic forcing amplitude in m/s (Garcia et al. '
+                         'use 0.01).  Exposed to test whether the grid-'
+                         'INDEPENDENT part of the beam-angle offset is finite-'
+                         'amplitude: truncation error vanishes with h, a '
+                         'nonlinear offset does not, but it should scale with '
+                         'u0.')
     ap.add_argument('--lsl', type=float, default=0.10,
                     help='sponge width as a fraction of Lx (was hardcoded Lx/10)')
     ap.add_argument('--taus', type=float, default=100.0,
@@ -266,7 +297,8 @@ def main():
     phi_nh = np.degrees(np.arctan(np.sqrt(g.ratio**2 / (1 - g.ratio**2))))
     phi_h = np.degrees(np.arctan(g.ratio))
     print(f"\n=== iwbcurv  omega/N={g.ratio}  {g.nx}x{g.nz}  {g.nper} periods  "
-          f"Lx={LX/1000:.1f} km  D0={D0:.0f} m  k={g.order}  FULLY CURVILINEAR ===")
+          f"Lx={LX/1000:.1f} km  D0={D0:.0f} m  k={g.order}  alpha={g.alpha:.0e}  "
+          f"FULLY CURVILINEAR ===")
     print(f"  theory: nonhydrostatic {phi_nh:.2f} deg (Eq.30)   "
           f"hydrostatic {phi_h:.2f} deg (Eq.31)")
 
@@ -310,7 +342,7 @@ def main():
     oc.addpath(g.mole); oc.addpath(os.path.join(g.grids, 'iwbridge'))
     here = os.getcwd(); os.chdir(g.grids)
     try:
-        oc.eval(f"global BT BB; BT={g.bt}; BB={g.bb};")
+        oc.eval(f"global BT BB BULGE; BT={g.bt}; BB={g.bb}; BULGE={g.bulge};")
         oc.eval(f"cd('{g.grids.replace(os.sep,'/')}'); "
                 f"[X,Z]=gridGen('TFI','iwbridge',{g.nx},{g.nz},false);")
     finally:
@@ -557,6 +589,95 @@ def main():
             rhs_[tgt] = bsc * met * un / dt
         return rhs_
 
+    # ------------------------------------------------------------------
+    # SEICHE: the solver measured against an exact answer.
+    #
+    # The beam angle converges at first order to a nonzero limit, and seven
+    # candidate causes have been eliminated.  The problem with continuing to
+    # test it is that it depends on the ridge sampling, the sponge, the fit
+    # window and the tracker simultaneously, so every test so far has been
+    # confounded by at least one of them.
+    #
+    # A free standing internal wave in a flat rectangular box has an exact
+    # frequency, omega = N k / sqrt(k^2 + p^2), with k = I pi / Lx and
+    # p = J pi / D0.  No forcing, no sponge, no topography, no tracker: the
+    # only thing left is the discretization.  The GRID is still curvilinear
+    # (--bulge 0 makes the DOMAIN a rectangle, but the xi-lines still tilt by
+    # 148 m because betaOf stretches top and bottom differently), so the
+    # metrics are still exercised.
+    #
+    #   u = -(W p / k) sin(k x') cos(p z')     zero at x' = 0, Lx
+    #   w =            cos(k x') sin(p z')     zero at z' = 0, D0
+    #
+    # which is divergence-free analytically; it is projected once so that it
+    # is divergence-free DISCRETELY before stepping.
+    # ------------------------------------------------------------------
+    if g.seiche:
+        I_, J_ = g.seiche
+        if abs(g.ab) > 1e-12 or abs(g.bulge) > 1e-12:
+            print("\n  *** --seiche needs a rectangular domain: "
+                  "--ab 0 --bulge 0 ***\n")
+            return
+        Zu = 0.5 * (ZM[:-1, :] + ZM[1:, :])
+        kx, pz = I_ * np.pi / LX, J_ * np.pi / D0
+        om_ex = Nb * kx / np.hypot(kx, pz)
+        T_ex = 2 * np.pi / om_ex
+        dt = T_ex / g.spp
+        nt = int(g.nper * T_ex / dt)
+        print(f"  [{el()}] seiche mode ({I_},{J_}): exact omega = {om_ex:.6e} 1/s"
+              f"  T = {T_ex:.2f} s   dt = {dt:.3f} s   {nt} steps")
+
+        xp_u = Xu.ravel() + LX / 2.0; zp_u = Zu.ravel() + D0
+        xp_w = Xf.ravel() + LX / 2.0; zp_w = Zf.ravel() + D0
+        u = -(pz / kx) * np.sin(kx * xp_u) * np.cos(pz * zp_u)
+        w = np.cos(kx * xp_w) * np.sin(pz * zp_w)
+        wref = w.copy()
+        b = np.zeros(nc); gp = np.zeros(nu_ + nw_)
+
+        # one projection so the initial field is discretely divergence-free
+        usw = np.concatenate([u, w])
+        rhs = (D @ usw)
+        rhs[bedidx] = bedsc * (C @ usw)
+        phi = lu.solve(rhs); gph = G @ phi
+        u -= gph[:nu_]; w -= gph[nu_:]
+        print(f"  [{el()}] initial field projected: "
+              f"div {np.abs(D @ np.concatenate([u, w])).max():.2e}  "
+              f"bed {np.abs(C @ np.concatenate([u, w])).max():.2e}")
+
+        nrm = float(wref @ wref)
+        a_t = np.empty(nt + 1); a_t[0] = (wref @ w) / nrm
+        for it in range(1, nt + 1):
+            us = u - dt * gp[:nu_]
+            ws = w - dt * gp[nu_:] + dt * (Ic_z @ b)
+            usw = np.concatenate([us, ws])
+            rhs = (D @ usw) / dt
+            rhs[bedidx] = bedsc * (C @ usw) / dt
+            phi = lu.solve(rhs); gph = G @ phi
+            u = us - dt * gph[:nu_]; w = ws - dt * gph[nu_:]
+            gp = gp + gph
+            b = b - dt * Nb**2 * (Idf_w @ w)
+            a_t[it] = (wref @ w) / nrm
+            if not np.isfinite(a_t[it]) or abs(a_t[it]) > 1e3:
+                print(f"\n  *** seiche DIVERGED at step {it} ***\n"); return
+
+        # frequency from zero crossings of the modal amplitude, linearly
+        # interpolated.  Counting many periods averages the per-crossing error
+        # down; a single period would not resolve a 1e-4 relative difference.
+        s_ = np.sign(a_t); idx = np.where(s_[:-1] * s_[1:] < 0)[0]
+        if len(idx) < 3:
+            print("  *** fewer than 3 zero crossings; raise --nper ***"); return
+        tc = np.array([(i + a_t[i] / (a_t[i] - a_t[i + 1])) * dt for i in idx])
+        half = np.diff(tc)
+        om_num = np.pi / half.mean()
+        err = (om_num - om_ex) / om_ex
+        print(f"  [{el()}] crossings {len(tc)}  half-period "
+              f"{half.mean():.4f} +/- {half.std():.4f} s")
+        print(f"\n  SEICHE  omega_num = {om_num:.6e}   exact = {om_ex:.6e}"
+              f"   relative error = {err:+.4e}")
+        print(f"  grid {g.nx}x{g.nz}  dx={LX/(g.nx-1):.2f} m  dz={D0/(g.nz-1):.2f} m"
+              f"  spp={g.spp}\n")
+        return
+
     dt = T / g.spp; nt = int(g.nper * T / dt)
     print(f"  [{el()}] dt={dt:.2f} s  ({nt} steps, {g.spp}/period)  T={T:.1f} s")
 
@@ -589,7 +710,7 @@ def main():
     # because a blow-up has a huge peak-to-mean ratio by construction.  The
     # forcing amplitude u0 is the natural yardstick -- a linear internal tide
     # driven at u0 cannot legitimately exceed a few times u0.
-    ulim = 50.0 * U0
+    ulim = 50.0 * g.u0
     # ------------------------------------------------------------------
     # Consistency check.  After the projection the velocity must satisfy BOTH
     #   (a) div(u) = 0                          -- the projection's job
@@ -612,7 +733,7 @@ def main():
     t0 = time.time(); beat(f"time loop: {nt} steps", force=True)
     for it in range(1, nt + 1):
         t = it * dt
-        ubc = U0 * np.sin(om * t)
+        ubc = g.u0 * np.sin(om * t)
         us = u - dt * gp[:nu_] - dt * (u - ubc) / g.taus * slu
         ws = w - dt * gp[nu_:] + dt * (Ic_z @ b) - dt * w / g.taus * slw
         usw = np.concatenate([us, ws])
@@ -647,7 +768,7 @@ def main():
             mu = np.abs(u).max()
             if (not np.isfinite(mu)) or mu > ulim:
                 print(f"\n  *** DIVERGED at t/T={t/T:.2f}: max|u|={mu:.3e}, "
-                      f"{mu/U0:.1f}x the forcing amplitude u0={U0} ***")
+                      f"{mu/g.u0:.1f}x the forcing amplitude u0={g.u0} ***")
                 print(f"  (no beam angle reported -- the field is not physical)\n")
                 return
             rate = (time.time() - t0) / it
@@ -724,7 +845,7 @@ def main():
           f"hydrostatic {phi_h:.2f}   error {meas-phi_nh:+.2f} deg "
           f"({100*(meas-phi_nh)/phi_nh:+.1f}%)")
     if g.out:
-        sv = dict(rms=rms, X=XM, Z=ZM, pts=P, ratio=g.ratio, u0=U0)
+        sv = dict(rms=rms, X=XM, Z=ZM, pts=P, ratio=g.ratio, u0=g.u0)
         if snap_u is not None:
             sv['snap_u'] = snap_u.reshape(n + 2, m + 2)
             sv['snap_w'] = snap_w.reshape(n + 2, m + 2)

@@ -63,14 +63,27 @@ def main():
     if missing:
         print(f"warning: no usable run for omega/N = {missing}")
 
+    # How much of a test is each point?  The two theories are only far apart
+    # at high omega/N: nonhydro - hydro is 0.23 deg at 0.2 but 14.47 at 0.8.
+    # A point whose bias exceeds that separation cannot distinguish the two
+    # and is a sanity check, not evidence of nonhydrostatic behaviour.
+    def sep(r):
+        return np.degrees(np.arcsin(r)) - np.degrees(np.arctan(r))
+
     print("plotted points:")
+    print("   %-5s %-9s %-9s %-9s %-11s %-9s" %
+          ("w/N", "measured", "theory", "bias", "nh-h sep", "bias/sep"))
     for r in ratios:
         s = sel[r]
         if not s:
             continue
-        print(f"   w/N={r}  {s['meas']:.2f} deg  (theory {theory(r):.2f}, "
-              f"{s['meas']-theory(r):+.2f})  Lx={s['Lx']:.0f}km "
-              f"{s['nx']}x{s['nz']} win[{s['win']}] rms {s['rms']:.1f} m")
+        b = s['meas'] - theory(r); d = sep(r)
+        flag = "  <- cannot discriminate" if abs(b) > d else ""
+        print("   %-5.1f %-9.2f %-9.2f %+-9.2f %-11.2f %-9s%s"
+              % (r, s['meas'], theory(r), b, d,
+                 f"{abs(b)/d:.0%}" if d > 0 else "-", flag))
+        print("         %s  Lx=%.0fkm %dx%d win[%s] rms %.1f m"
+              % (" "*0, s['Lx'], s['nx'], s['nz'], s['win'], s['rms']))
 
     x = np.linspace(0.001, 0.995, 400)
     fig, ax = plt.subplots(figsize=(6.2, 5.4), constrained_layout=True)
@@ -97,11 +110,17 @@ def main():
     note = "fit windows (m): " + ", ".join(f"{r}:[{wins[r]}]" for r in px)
     mb_o = np.mean([abs(sel[r]['meas']-theory(r)) for r in px])
     mb_g = np.mean([abs(GCCOM[r]-theory(r)) for r in px])
+    disc = [r for r in px if abs(sel[r]['meas']-theory(r)) < sep(r)]
     ax.set_title("Internal wave beam angle vs forcing frequency\n"
                  f"mean |bias|: this solver {mb_o:.2f}$\\degree$, "
                  f"GCCOM {mb_g:.2f}$\\degree$", fontsize=10)
     ax.text(0.02, -0.13, note, transform=ax.transAxes, fontsize=6.5,
             va='top', color='0.35')
+    ax.text(0.02, -0.175,
+            "the two curves separate by only %.2f deg at w/N=0.2 and %.2f at 0.8; "
+            "points that discriminate: %s"
+            % (sep(0.2), sep(0.8), ", ".join(str(r) for r in disc)),
+            transform=ax.transAxes, fontsize=6.5, va='top', color='0.35')
 
     fig.savefig(g.out, dpi=160, bbox_inches='tight')
     print(f"\nwrote {g.out}")

@@ -1,0 +1,15 @@
+﻿
+=== iwbcurv  omega/N=0.6  256x101  20 periods  Lx=6.0 km  D0=1000 m  k=2  FULLY CURVILINEAR ===
+  theory: nonhydrostatic 36.87 deg (Eq.30)   hydrostatic 30.96 deg (Eq.31)
+  window: auto [200, 933] m (bounce = 1333 m; keeps the fit inside the first bounce)
+  [00:00] generating grid (TFI, position-dependent beta) ...
+  [00:15] jacobian  : ALL +   |J| 175.9 .. 405
+  [00:15] grid angle: 61.7 - 118.3 deg  (90 = orthogonal)
+  [00:15] xi-line wander top-to-bottom: 147.7 m  -> FULLY CURVILINEAR
+  [00:15] r_x       : max 0.709  median 0.000  OK (<1)
+  [00:15] resolution: dx=23.5 m  dz=10.0 m  aspect 0.425
+  [00:15] lepticity : h_e=551 m  lambda=dx/h_e=0.0427  Gamma~0.0018  OK (<<1)
+  [00:15] beam      : slope 0.7500, bounce 1.33 km, 4.5 bounces across the domain
+
+  (--gridonly: stopping here)
+

@@ -1,114 +1,110 @@
-# MOLE curvilinear operator tests
+# gccom-mole-experiments
 
-Four independent checks against MOLE, all runnable in about a minute on a laptop.
-No MATLAB required — everything runs in Octave, driven from Python via `oct2py`.
+Verification and validation of a two-dimensional, non-hydrostatic, Boussinesq
+internal-wave solver on **fully curvilinear grids**, built on the
+[MOLE](https://github.com/csrc-sdsu/mole) mimetic operator library. It is a
+testbed for reviving the mimetic formulation of the General Curvilinear Coastal
+Ocean Model (GCCOM), and its validation target is the internal-wave-beam
+benchmark of Garcia et al. (2019), *J. Comput. Sci.* 30:143–156, §3.3.
 
-## 1. Environment
+The solver (`iwbcurv.py`) is **linear**: there is no advection term, so every
+result scales with the forcing amplitude.
 
-```bash
-conda env create -f environment.yml
-conda activate mole
+## Status (v1.0.0)
+
+**Verified against an exact solution.** A free standing internal wave
+(`--seiche I J`) in a flat rectangular box on a curvilinear grid converges at
+**second order to zero** against the exact frequency
+ω = N k / √(k² + p²):
+
+| grid | dz (m) | relative frequency error | local order |
+|---|---|---|---|
+| 128×51 | 20.00 | −1.81e-03 | |
+| 192×76 | 13.33 | −7.72e-04 | 2.10 |
+| 256×101 | 10.00 | −4.08e-04 | 2.21 |
+| 384×151 | 6.67 | −1.49e-04 | 2.49 |
+
+Mode (4,2), `alpha = 1e-6`, time step converged (second order in time). Fitting
+e = A·dzᵖ + e₀: p = 2 leaves a residual of 7.8e-08 with e₀ = +5.9e-05; p = 1 is
+about 1500× worse.
+
+**The lateral Robin coefficient matters.** `alpha` only regularises an
+otherwise singular pure-Neumann Poisson system. At the former default `1e-4` it
+dominated the seiche error (+4.3e-03, *growing* under refinement); below ~1e-6
+the error plateaus at its true discretisation value. The default is now `1e-6`.
+Beam angles move by at most 0.1° between the two values, because the sponge also
+holds the lateral boundaries in the forced problem.
+
+**Beam angle — converges, with one open question.** At ω/N = 0.8, measured by
+the energy centroid on slices perpendicular to the beam over 0.10–0.40 of a
+bounce, the bias against theory is
+
+| grid | 256×101 | 384×151 | 512×201 | 640×251 | 768×301 | 896×351 |
+|---|---|---|---|---|---|---|
+| bias (°) | +2.76 | +1.45 | +0.82 | +0.46 | +0.16 | +0.02 |
+
+This converges at **first order** (free-exponent fit p = 1.05) to a limit near
+**−1.0°**. The first-order behaviour was confirmed by prediction: from the first
+four grids, p = 1 predicted +0.19 and +0.00 at the two finest; p = 2 predicted
++0.43 and +0.35; the runs gave +0.16 and +0.02.
+
+The offset is not in the core discretisation (the seiche shows that), not in the
+lateral boundary parameter, and not in the represented ridge crest (fixing the
+crest at exactly 20.00 m on every grid changes the limit from −1.10° to −1.08°).
+Its origin is **open** in this version. Candidates under test: contamination of
+the rms-speed diagnostic by the barotropic tide, the terrain-following metrics
+near the ridge, and flank sampling.
+
+**Measurement convention.** The measured angle depends on where along the beam
+it is fitted; the extrapolated limit spreads by 1.2° (ω/N = 0.6) and 2.2°
+(ω/N = 0.8) across fit windows. Windows here are stated as fractions of a
+bounce, D₀ / tan θ. Garcia et al. use a fixed [200, 500] m, which is
+0.15–0.38 of a bounce at ω/N = 0.6 but 0.27–0.67 at 0.8, so it samples
+different parts of the beam at different frequencies.
+
+## MOLE fixes arising from this work
+
+| issue | pull request | subject |
+|---|---|---|
+| csrc-sdsu/mole#453 | #466 | `GI13` index map — `grad3DCurv` did not converge on curvilinear grids |
+| csrc-sdsu/mole#454 | #468 | warn when the grid handed to the curvilinear operators is left-handed |
+| csrc-sdsu/mole#455 | #469 | `ttm` initial guess — elliptic grids came out folded |
+| csrc-sdsu/mole#456 | — | orientation guard for 3-D and vanishing Jacobians |
+
+The 2-D results in this repository use **stock MOLE**: none of those code paths
+(`GI13`, `ttm`, the 3-D Jacobian) is exercised by `iwbcurv.py`.
+
+## Reproducing
+
+Environment: MOLE at commit `1d009d14` (2026-09-14; the `mole` submodule),
+GNU Octave 8.4, Python 3.11–3.12, numpy 2.4, scipy 1.17, oct2py.
+
+```powershell
+git clone --recurse-submodules https://github.com/manuelvalera/gccom-mole-experiments.git
+cd gccom-mole-experiments
+$env:MOLE_SRC = "$PWD\mole\src\octave"        # note: src\octave, not src\matlab_octave
+.\preflight_bulge.ps1                          # grid files must honour --bulge
 ```
 
-If you'd rather not use the yml:
+| step | command | what it establishes |
+|---|---|---|
+| seiche sweep | `.\seiche_study.ps1` then `python seiche_report.py seiche-logs` | mode, refinement, alpha, order, dx/dz, bed controls |
+| alpha | `.\seiche_alpha.ps1` then `python seiche_report.py alpha-logs` | alpha floor, true order, beam sensitivity, long runs |
+| beam series | `.\refit_fields.ps1`, `.\finer.ps1` | saved fields at alpha = 1e-6, six grids |
+| window / curvature | `python refit.py refit-npz`, `python curvature.py refit-npz` | window dependence, sag |
+| tracker | `python centroid_track.py refit-npz` | argmax vs perpendicular energy centroid, extrapolated limits |
+| crest | `python crest_check.py refit-npz`, `.\fixedcrest.ps1` | fixed-crest control |
+| ridge height | `.\ab_test.ps1`, `python ab_compare.py 10=ab10-npz 20=refit-npz 40=ab40-npz` | tide contamination of the diagnostic |
 
-```bash
-conda create -n mole -c conda-forge python=3.11 octave oct2py numpy scipy matplotlib pyamg rasterio
-conda activate mole
-```
+Saved fields (`*.npz`) are not tracked in git; the scripts regenerate them. Run
+logs are included.
 
-On macOS with Homebrew, `brew install octave` then `pip install oct2py` also works.
-Verify Octave is visible to Python:
+## Citation
 
-```bash
-python -c "from oct2py import Oct2Py; print(Oct2Py().eval('version'))"
-```
+See `CITATION.cff`, or the DOI badge once minted. Please cite Garcia et al.
+(2019) for the benchmark and the MOLE JOSS paper (Corbino, Dumett & Castillo,
+2024) for the operator library.
 
-## 2. Get MOLE
+## License
 
-```bash
-git clone https://github.com/csrc-sdsu/mole.git
-# operators live in  mole/src/matlab_octave
-```
-
-## 3. Run everything
-
-```bash
-python py/run_all.py --mole /full/path/to/mole/src/matlab_octave
-```
-
-That's the whole thing. It prints one block covering all four checks — paste it
-straight back.
-
-Optional flags (both default to this repo's directories, so you normally don't
-need them):
-
-```
---patch  ./patch      directory holding the patched GI13.m
---grids  ./grids      directory holding grids/seamount/
-```
-
-## What each check does
-
-**1 — GI13 index map.** Feeds `GI13` a field whose values encode their own
-indices and decodes where each output entry came from. No floating point
-involved. Stock MOLE reads 15 of 45 entries from the wrong zeta-plane; the
-patch should give 0.
-
-**2 — grad3DCurv convergence.** Same curvilinear grid, `f = x²+y²+z²`, before
-and after the patch. Stock gives order ~0.03 (no convergence). Patched should
-give ~2.0. Also checks that a Cartesian grid stays exact, so the patch doesn't
-break anything that worked.
-
-**3 — gridGen vs jacobian2D.** `gridGen` returns arrays with xi-nodes as rows;
-`grad2DCurv` and `jacobian2D` do `[n,m]=size(X)` and want rows = eta. Feed the
-output straight through and the Jacobian is negative everywhere — a
-left-handed grid, with no warning from anything. Transposing fixes it. Same
-|J| both ways, only the sign differs.
-
-**4 — TTM folding.** Thompson–Thames–Mastin elliptic generation on the thesis
-Eq. 2.24 seamount folds the grid within 5 iterations, producing genuinely
-negative Jacobians in patches while the rest stays positive. Nothing downstream
-notices.
-
-## Applying the patch
-
-`patch/GI13.m` is a drop-in replacement with the same signature. Either drop it
-into `mole/src/matlab_octave/`, or put its directory earlier on the Octave path
-(`addpath` prepends, so it must be added *after* the MOLE directory to take
-precedence — that ordering trips people up).
-
-## Files
-
-```
-environment.yml
-py/run_all.py                          runs all four checks, one report
-patch/GI13.m                           the fix
-tests/test_GI13_indexmap.m             check 1, standalone Octave
-tests/test_grad3DCurv_convergence.m    check 2, standalone Octave
-grids/seamount/                        thesis Eq. 2.24 bathymetry, beta modulated
-  bottom.m top.m left.m right.m
-  stretch.m                            thesis Eq. 2.25-2.26 clustering
-  betaOf.m                             position-dependent beta (thesis 5.1)
-```
-
-The two `tests/*.m` files run directly in Octave if you'd rather skip Python —
-edit the `MOLE_SRC` path at the top of each, then `octave tests/<name>.m`.
-
-## Known-good output
-
-Checks 1, 3 and 4 are deterministic. Check 2's numbers depend slightly on
-Octave version but the *orders* should match: ~0.03 stock, ~2.0 patched.
-
-```
-1.  15 of 45 output entries read from the wrong zeta-plane
-
-2.  STOCK GI13     n=49  grad rms 5.4146e-01  order 0.03
-    PATCHED GI13   n=49  grad rms 1.4859e-03  order 2.09
-    Cartesian regression: rms 6.5e-14 / 0 / 4.9e-13
-
-3.  as returned : jacobian2D -> ALL -   |J| 387.3 .. 2747
-    transposed  : jacobian2D -> ALL +   |J| 387.3 .. 2747
-
-4.  5 iters -> 9 negative cells;  50 -> 866;  100 -> 1005
-```
+GPL-3.0-or-later, matching MOLE.

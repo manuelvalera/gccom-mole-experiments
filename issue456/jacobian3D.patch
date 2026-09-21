@@ -1,0 +1,20 @@
+diff --git a/src/octave/jacobian3D.m b/src/octave/jacobian3D.m
+index 22c745f..96b3e45 100644
+--- a/src/octave/jacobian3D.m
++++ b/src/octave/jacobian3D.m
+@@ -31,6 +31,7 @@ function [J, Xe, Xn, Xk, Ye, Yn, Yk, Ze, Zn, Zk] = jacobian3D(k, X, Y, Z, dc, nc
+               "jacobian3D expects 4 or 6 arguments")
+     elseif nargin == 4
+         [J, Xe, Xn, Xk, Ye, Yn, Yk, Ze, Zn, Zk] = jacobian3DLegacy(k, X, Y, Z);
++        checkGridOrientation(J, 'jacobian3D');
+         return;
+     end
+ 
+@@ -111,4 +112,6 @@ function [J, Xe, Xn, Xk, Ye, Yn, Yk, Ze, Zn, Zk] = jacobian3D(k, X, Y, Z, dc, nc
+ 
+     J = Xe .* (Yn .* Zk - Yk .* Zn) - Xn .* (Ye .* Zk - Yk .* Ze) + Xk .* (Ye .* Zn - Yn .* Ze);
+ 
++    checkGridOrientation(J, 'jacobian3D');
++
+ end
+\ No newline at end of file
