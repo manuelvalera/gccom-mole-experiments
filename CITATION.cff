@@ -8,7 +8,7 @@ authors:
 type: software
 license: GPL-3.0-or-later
 repository-code: "https://github.com/manuelvalera/gccom-mole-experiments"
-version: 1.0.1
+version: 1.1.0
 doi: 10.5281/zenodo.22884121
 date-released: 2026-09-22
 keywords:

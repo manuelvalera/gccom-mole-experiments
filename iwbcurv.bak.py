@@ -65,7 +65,7 @@ USAGE
   python iwbcurv.py --mole ... --gridonly          # diagnostics, no run
   foreach ($r in 0.2,0.4,0.6,0.8) { python iwbcurv.py --mole $env:MOLE_SRC --ratio $r }
 """
-import argparse, hashlib, json, os, sys, time
+import argparse, os, sys, time
 
 T0 = time.time()
 _LAST = [time.time()]
@@ -93,97 +93,6 @@ def beat(msg, every=None, force=False):
     if force or now - _LAST[0] >= (every or globals().get('_BEAT', 300.0)):
         _LAST[0] = now
         print(f"    [{el()} elapsed] {msg}", flush=True)
-
-
-# ---------------------------------------------------------------------------
-# Grid / operator cache.
-#
-# A profile at 896x351 put ~197 s of a 324 s run in Octave's gridGen, and the
-# operators add ~10 s more -- rebuilt identically on every run of a sweep. The
-# key covers everything that can change the result: grid size, geometry, the
-# stretching and bulge, and a hash of every .m file under MOLE's source tree
-# and the grid-definition directory, so editing MOLE or a boundary curve
-# invalidates the cache automatically. Delete the cache directory to force a
-# rebuild; --no-cache bypasses it.
-# ---------------------------------------------------------------------------
-def _tree_hash(roots):
-    h = hashlib.sha1()
-    for root in roots:
-        for dp, dn, fn in os.walk(root):
-            dn.sort()
-            for f in sorted(fn):
-                if f.endswith('.m') and f != 'geom_over.m':
-                    h.update(os.path.relpath(os.path.join(dp, f), root).encode())
-                    with open(os.path.join(dp, f), 'rb') as fh:
-                        h.update(fh.read())
-    return h.hexdigest()
-
-
-def _key(d):
-    return hashlib.sha1(json.dumps(d, sort_keys=True).encode()).hexdigest()[:16]
-
-
-def _atomic_savez(path, **arrays):
-    os.makedirs(os.path.dirname(path) or '.', exist_ok=True)
-    tmp = path[:-4] + '.partial.npz'
-    np.savez(tmp, **arrays)
-    os.replace(tmp, path)           # a crash mid-write never leaves a bad cache
-
-
-def _pack_ops(mats, J2):
-    d = {'J2': J2}
-    for k, M in mats.items():
-        M = sp.csr_matrix(M)
-        d[k + '_data'], d[k + '_indices'] = M.data, M.indices
-        d[k + '_indptr'], d[k + '_shape'] = M.indptr, np.array(M.shape)
-    return d
-
-
-def _unpack_ops(z, names):
-    mats = [sp.csr_matrix((z[k + '_data'], z[k + '_indices'], z[k + '_indptr']),
-                          shape=tuple(z[k + '_shape'])) for k in names]
-    return mats, z['J2']
-
-
-# ---------------------------------------------------------------------------
-# PARDISO, as a drop-in for SuperLU's factor-once / solve-many interface.
-#
-# SuperLU's solve is single-threaded; MKL PARDISO's is multithreaded. Same
-# double precision. The solve-only path skips pypardiso's per-call check that
-# the matrix is unchanged (an O(nnz) comparison), which is safe here because L
-# is fixed for the whole run. Thread count follows MKL_NUM_THREADS.
-# ---------------------------------------------------------------------------
-class _PardisoLU:
-    def __init__(self, A):
-        from pypardiso import PyPardisoSolver
-        self.A = sp.csr_matrix(A)
-        self.A.sort_indices()
-        self.ps = PyPardisoSolver(mtype=11)          # real, nonsymmetric
-        self.ps.factorize(self.A)
-        self._fast = hasattr(self.ps, '_call_pardiso') and hasattr(self.ps, 'set_phase')
-
-    def solve(self, b):
-        b = np.ascontiguousarray(b, dtype=np.float64)
-        if self._fast:
-            self.ps.set_phase(33)
-            return self.ps._call_pardiso(self.A, b)
-        return self.ps.solve(self.A, b)
-
-
-def _growth_report(hist):
-    """Fit log-norm growth over the second half of the probe history, for the
-    whole-domain ||w|| and for the near-ridge box, where the mode lives."""
-    if len(hist) < 4:
-        return
-    h = np.array(hist); k = len(h) // 2
-    for col, name in ((3, 'ridge ||w||'), (2, 'domain ||w||')):
-        sl = np.polyfit(h[k:, 0], np.log(h[k:, col]), 1)[0]
-        ef = (1.0/sl) if sl != 0 else np.inf
-        verdict = (f"e-folding {ef:.1f} periods  -> UNSTABLE" if sl > 1e-4 else
-                   (f"decay time {-ef:.1f} periods  -> stable" if sl < -1e-4 else
-                    "flat (neutral)"))
-        print(f"  GROWTH  {name:13s} periods {h[k,0]:.0f}-{h[-1,0]:.0f}: "
-              f"rate {sl:+.4f} per period  {verdict}")
 
 
 def pull(oc, nm):
@@ -368,31 +277,6 @@ def main():
                          'is the test that it is not a disguised --bsc.')
     ap.add_argument('--field', default='w', choices=['w', 'speed', 'ubc'],
                     help='field used for the beam track (default w)')
-    ap.add_argument('--noise', type=float, default=0.0,
-                    help='start from a random velocity field of this amplitude '
-                         '(projected to be divergence-free and bed-consistent). With '
-                         '--u0 0 this is a FREE run: no tide, so any growth is an '
-                         'instability of the discretised equations, not the forcing.')
-    ap.add_argument('--probe', action='store_true',
-                    help='log ||u||, ||w|| every period and fit the growth rate of '
-                         '||w|| over the second half of the run (e-folding time in '
-                         'periods; positive = growing).')
-    ap.add_argument('--ramp', type=float, default=0.0,
-                    help='ramp the tidal forcing on smoothly over this many periods '
-                         '(0 = abrupt start, the original behaviour). Shortens the '
-                         'spin-up transient; make sure --nper minus the 10-period '
-                         'averaging window still starts well after the ramp ends.')
-    ap.add_argument('--solver', default='superlu', choices=['superlu', 'pardiso'],
-                    help='pressure solver. pardiso = MKL PARDISO via pypardiso, '
-                         'multithreaded (threads: MKL_NUM_THREADS). Verify any '
-                         'change of solver against --seiche before trusting it.')
-    ap.add_argument('--cache', default='.gridcache',
-                    help='directory for cached grids and operators')
-    ap.add_argument('--no-cache', dest='no_cache', action='store_true',
-                    help='always rebuild the grid and operators in Octave')
-    ap.add_argument('--save-matrix', dest='save_matrix', default=None,
-                    help='write the assembled pressure matrix L (scipy .npz) '
-                         'for solver benchmarking, then continue')
     ap.add_argument('--out', default=None)
     g = ap.parse_args()
     globals()['_BEAT'] = g.beat
@@ -414,7 +298,6 @@ def main():
     phi_h = np.degrees(np.arctan(g.ratio))
     print(f"\n=== iwbcurv  omega/N={g.ratio}  {g.nx}x{g.nz}  {g.nper} periods  "
           f"Lx={LX/1000:.1f} km  D0={D0:.0f} m  k={g.order}  alpha={g.alpha:.0e}  "
-          f"ramp={g.ramp:g}T  "
           f"FULLY CURVILINEAR ===")
     print(f"  theory: nonhydrostatic {phi_nh:.2f} deg (Eq.30)   "
           f"hydrostatic {phi_h:.2f} deg (Eq.31)")
@@ -434,62 +317,44 @@ def main():
         print(f"  window: [{g.win[0]:.0f}, {g.win[1]:.0f}] m  "
               f"(bounce = {bounce:.0f} m)")
 
-    # Check the MOLE path before anything else. Octave's addpath does NOT
-    # error on a directory that does not exist, and a MOLE path pointing one
-    # level too high fails much later as "error: 'gridGen' undefined" from
-    # inside oc.eval, which names neither the path nor the real problem.
+    print(f"  [{el()}] generating grid (TFI, position-dependent beta) ...", flush=True)
+    from oct2py import Oct2Py           # imported here so this module can be
+    oc = Oct2Py()                       # imported without Octave, for tests; oc.eval("warning('off','all'); more off;")
+    # Octave's addpath does NOT error on a directory that does not exist, and
+    # a MOLE path pointing one level too high (the repo root, or src/) fails
+    # much later as "error: 'gridGen' undefined" from inside oc.eval, which
+    # names neither the path nor the real problem.  Check it here instead.
     _need = ['gridGen.m', 'grad2DCurv.m', 'div2DCurv.m', 'robinBC2D.m',
              'interpol2D.m', 'jacobian2D.m']
     _miss = [f for f in _need if not os.path.isfile(os.path.join(g.mole, f))]
     if _miss:
-        print(f"\n  *** --mole does not look like MOLE's source directory:\n"
+        oc.exit()
+        print(f"\n  *** --mole does not look like MOLE's src/matlab_octave:\n"
               f"      {g.mole}\n"
               f"      missing: {', '.join(_miss)}\n"
               f"      It must be the directory CONTAINING gridGen.m -- usually\n"
-              f"      <mole-repo>/src/octave, not the repo root.\n")
+              f"      <mole-repo>/src/matlab_octave, not the repo root.\n")
         for _root, _dirs, _files in os.walk(os.path.abspath(os.path.join(g.mole, '..', '..'))):
             if 'gridGen.m' in _files:
                 print(f"      found gridGen.m in: {_root}\n")
                 break
         return
-
-    use_cache = not g.no_cache
-    if use_cache:
-        _code = _tree_hash([g.mole, os.path.join(g.grids, 'iwbridge')])
-        gkey = _key(dict(nx=g.nx, nz=g.nz, Lx=LX, D0=D0, ab=g.ab, lb=g.lb,
-                         bt=g.bt, bb=g.bb, bulge=g.bulge, code=_code))
-        gpath = os.path.join(g.cache, f"grid_{gkey}.npz")
-    oc = None
-
-    def _octave():
-        from oct2py import Oct2Py       # imported here so this module can be
-        o = Oct2Py()                    # imported without Octave, for tests
-        o.addpath(g.mole); o.addpath(os.path.join(g.grids, 'iwbridge'))
-        return o
-
-    if use_cache and os.path.isfile(gpath):
-        _z = np.load(gpath); X = _z['X']; Z = _z['Z']
-        print(f"  [{el()}] grid from cache ({os.path.basename(gpath)})", flush=True)
-    else:
-        print(f"  [{el()}] generating grid (TFI, position-dependent beta) ...", flush=True)
-        oc = _octave()
-        here = os.getcwd(); os.chdir(g.grids)
-        try:
-            oc.eval(f"global BT BB BULGE; BT={g.bt}; BB={g.bb}; BULGE={g.bulge};")
-            oc.eval(f"cd('{g.grids.replace(os.sep,'/')}'); "
-                    f"[X,Z]=gridGen('TFI','iwbridge',{g.nx},{g.nz},false);")
-        finally:
-            os.chdir(here)
-        X = oc.pull('X'); Z = oc.pull('Z')
-        if use_cache:
-            _atomic_savez(gpath, X=X, Z=Z)
+    oc.addpath(g.mole); oc.addpath(os.path.join(g.grids, 'iwbridge'))
+    here = os.getcwd(); os.chdir(g.grids)
+    try:
+        oc.eval(f"global BT BB BULGE; BT={g.bt}; BB={g.bb}; BULGE={g.bulge};")
+        oc.eval(f"cd('{g.grids.replace(os.sep,'/')}'); "
+                f"[X,Z]=gridGen('TFI','iwbridge',{g.nx},{g.nz},false);")
+    finally:
+        os.chdir(here)
+    X = oc.pull('X'); Z = oc.pull('Z')
 
     ok = grid_diag(X, Z, g.nx, g.nz, phi_nh)
     if g.gridonly:
-        if oc is not None: oc.exit()
+        oc.exit()
         print("\n  (--gridonly: stopping here)\n"); return
     if not ok and not g.forcegrid:
-        if oc is not None: oc.exit()
+        oc.exit()
         print("\n  *** grid diagnostics failed -- fix the grid before running ***\n")
         return
     if not ok:
@@ -500,31 +365,17 @@ def main():
     XM = X.T.copy(); ZM = Z.T.copy()
     m, n = g.nx - 1, g.nz - 1
     dxr, dzr = LX / m, D0 / n
-    _names = ('G', 'D', 'B', 'Ic', 'Idf')
-    if use_cache:
-        okey = _key(dict(grid=gkey, order=g.order, alpha=g.alpha))
-        opath = os.path.join(g.cache, f"ops_{okey}.npz")
-    if use_cache and os.path.isfile(opath):
-        (G, D, B, Ic, Idf), J2 = _unpack_ops(np.load(opath), _names)
-        J2 = J2.ravel()
-        print(f"  [{el()}] operators from cache ({os.path.basename(opath)})")
-    else:
-        if oc is None:
-            oc = _octave()
-        oc.push('Xm', XM); oc.push('Zm', ZM)
-        oc.eval(f"k={g.order}; m={m}; n={n}; dx={dxr}; dz={dzr};")
-        oc.eval("J2=jacobian2D(k,Xm,Zm);")
-        J2 = oc.pull('J2').ravel()
-        oc.eval("G=grad2DCurv(k,Xm,Zm); D=div2DCurv(k,Xm,Zm); "
-                f"B=robinBC2D(k,m,dx,n,dz,{g.alpha},1); "
-                "Ic=interpol2D(m,n,0.5,0.5); Idf=interpolD2D(m,n,0.5,0.5);")
-        G, D, B, Ic, Idf = [pull(oc, s) for s in _names]
-        if use_cache:
-            _atomic_savez(opath, **_pack_ops(dict(zip(_names, (G, D, B, Ic, Idf))), J2))
-    if oc is not None:
-        oc.exit()
+    oc.push('Xm', XM); oc.push('Zm', ZM)
+    oc.eval(f"k={g.order}; m={m}; n={n}; dx={dxr}; dz={dzr};")
+    oc.eval("J2=jacobian2D(k,Xm,Zm);")
+    J2 = oc.pull('J2').ravel()
     print(f"  [{el()}] MOLE jacobian2D on the transposed grid: "
           f"{'ALL +' if (J2>0).all() else ('ALL -' if (J2<0).all() else 'MIXED')}")
+    oc.eval("G=grad2DCurv(k,Xm,Zm); D=div2DCurv(k,Xm,Zm); "
+            f"B=robinBC2D(k,m,dx,n,dz,{g.alpha},1); "
+            "Ic=interpol2D(m,n,0.5,0.5); Idf=interpolD2D(m,n,0.5,0.5);")
+    G, D, B, Ic, Idf = [pull(oc, s) for s in ('G', 'D', 'B', 'Ic', 'Idf')]
+    oc.exit()
 
     nu_, nw_ = (m + 1) * n, m * (n + 1)
     nc = (m + 2) * (n + 2)
@@ -710,17 +561,8 @@ def main():
     L = L.tocsc()
     print(f"  [{el()}] L: n={nc} nnz={L.nnz} ({L.nnz/nc:.1f}/row) "
           f"bedmode={g.bedmode}, factorising ...", flush=True)
-    if g.save_matrix:
-        sp.save_npz(g.save_matrix, sp.csr_matrix(L))
-        print(f"  [{el()}] pressure matrix written to {g.save_matrix}")
-    t = time.time()
-    if g.solver == 'pardiso':
-        lu = _PardisoLU(L)
-        print(f"  [{el()}] pardiso factorise {time.time()-t:.1f}s  "
-              f"(MKL_NUM_THREADS={os.environ.get('MKL_NUM_THREADS', 'default')})")
-    else:
-        lu = spl.splu(L)
-        print(f"  [{el()}] splu {time.time()-t:.1f}s")
+    t = time.time(); lu = spl.splu(L)
+    print(f"  [{el()}] splu {time.time()-t:.1f}s")
 
     # Static validation of the whole projection, before a single timestep.
     # A random field is projected and BOTH conditions are measured.  If the
@@ -868,8 +710,7 @@ def main():
     # because a blow-up has a huge peak-to-mean ratio by construction.  The
     # forcing amplitude u0 is the natural yardstick -- a linear internal tide
     # driven at u0 cannot legitimately exceed a few times u0.
-    _ref = max(g.u0, g.noise)
-    ulim = 50.0 * _ref if _ref > 0 else np.inf
+    ulim = 50.0 * g.u0
     # ------------------------------------------------------------------
     # Consistency check.  After the projection the velocity must satisfy BOTH
     #   (a) div(u) = 0                          -- the projection's job
@@ -889,37 +730,10 @@ def main():
             r_bed = max(r_bed, np.abs(ww[tgt] - rat*0.5*(uu[s1] + uu[s2])).max())
         return r_div/scale, r_bed/(np.abs(uu).max() + 1e-300)
 
-    if g.noise > 0:
-        _rng = np.random.default_rng(1)
-        u = g.noise * _rng.standard_normal(nu_)
-        w = g.noise * _rng.standard_normal(nw_)
-        _usw = np.concatenate([u, w]); _rhs = D @ _usw
-        if g.bedmode == 'constraint':
-            _rhs[bedidx] = bedsc * (C @ _usw)
-        _gph = G @ lu.solve(_rhs)
-        u -= _gph[:nu_]; w -= _gph[nu_:]
-        print(f"  [{el()}] random initial field, amplitude {g.noise:g}, projected: "
-              f"||u|| {np.linalg.norm(u):.3e}  ||w|| {np.linalg.norm(w):.3e}")
-    _hist = []
-    if g.probe:
-        # The unstable mode is seeded at the ridge crest; a whole-domain norm is
-        # dominated by decaying noise everywhere else and hides it for 100+
-        # periods. Measure a box around the ridge as well.
-        _xw = (0.5 * (XM[:, :-1] + XM[:, 1:])).ravel()
-        _zw = (0.5 * (ZM[:, :-1] + ZM[:, 1:])).ravel()
-        _box = (np.abs(_xw) < 150.0) & (_zw < -D0 + 150.0)
-        print(f"  [{el()}] probe box |x|<150 m, bottom 150 m: {int(_box.sum())} w-faces")
     t0 = time.time(); beat(f"time loop: {nt} steps", force=True)
     for it in range(1, nt + 1):
         t = it * dt
-        # Smooth start. Switching the tide on abruptly at t = 0 kicks the whole
-        # domain with a broadband transient that rings down only slowly through
-        # the sponge -- measured as angles still moving between 20 and 40
-        # periods, and moving MORE on finer grids. A C1 ramp over --ramp periods
-        # removes most of that kick. --ramp 0 reproduces the old behaviour.
-        _rt = g.ramp * T
-        _rf = 1.0 if (_rt <= 0 or t >= _rt) else 0.5 * (1.0 - np.cos(np.pi * t / _rt))
-        ubc = g.u0 * _rf * np.sin(om * t)
+        ubc = g.u0 * np.sin(om * t)
         us = u - dt * gp[:nu_] - dt * (u - ubc) / g.taus * slu
         ws = w - dt * gp[nu_:] + dt * (Ic_z @ b) - dt * w / g.taus * slw
         usw = np.concatenate([us, ws])
@@ -936,12 +750,6 @@ def main():
         gp = gp + gphi
         wc = Idf_w @ w
         b = b - dt * Nb**2 * wc
-        if g.probe and it % g.spp == 0:
-            _nu, _nw = float(np.linalg.norm(u)), float(np.linalg.norm(w))
-            _nb = float(np.linalg.norm(w[_box])) if _box.any() else _nw
-            _hist.append((t / T, _nu, _nw, _nb))
-            print(f"    probe t/T={t/T:6.1f}  ||u||={_nu:.4e}  ||w||={_nw:.4e}  "
-                  f"ridge ||w||={_nb:.4e}  max|w|={np.abs(w).max():.3e}", flush=True)
         if it % max(1, nt // 5) == 0:
             rd, rb = bc_residual(u, w)
             if rd < 1e-8 and rb < 1e-8:
@@ -959,11 +767,8 @@ def main():
         if it % 20 == 0:
             mu = np.abs(u).max()
             if (not np.isfinite(mu)) or mu > ulim:
-                _ref_txt = (f"{mu/g.u0:.1f}x the forcing amplitude u0={g.u0}" if g.u0 > 0
-                            else f"{mu/g.noise:.1f}x the initial noise amplitude {g.noise:g}")
-                print(f"\n  *** DIVERGED at t/T={t/T:.2f}: max|u|={mu:.3e}, {_ref_txt} ***")
-                if g.probe:
-                    _growth_report(_hist)
+                print(f"\n  *** DIVERGED at t/T={t/T:.2f}: max|u|={mu:.3e}, "
+                      f"{mu/g.u0:.1f}x the forcing amplitude u0={g.u0} ***")
                 print(f"  (no beam angle reported -- the field is not physical)\n")
                 return
             rate = (time.time() - t0) / it
@@ -996,18 +801,7 @@ def main():
     # reshape(m+2, n+2).T gives the right SHAPE but scrambles the data --
     # the same transposition trap that flips the Jacobian sign and blows up
     # the r_x stencil.  A scrambled field shows no beam no matter what.
-    _tl = time.time() - t0
-    print(f"  [{el()}] time loop: {nt} steps in {_tl:.1f} s "
-          f"= {1e3*_tl/max(nt,1):.1f} ms/step  (solver {g.solver})")
     rms = np.sqrt(acc / max(nacc, 1)).reshape(n + 2, m + 2)
-    if g.probe:
-        _growth_report(_hist)
-    if g.u0 == 0:
-        if g.out:
-            np.savez_compressed(g.out, rms=rms, X=XM, Z=ZM, ratio=g.ratio, u0=g.u0)
-            print(f"  field saved to {g.out}")
-        print("\n  (free run: no forcing, no beam angle)\n")
-        return
 
     # Beam fit: vertical location of the rms max per column, then least
     # squares to those (x, z) maxima.
