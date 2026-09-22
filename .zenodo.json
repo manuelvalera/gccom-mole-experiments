@@ -1,9 +1,9 @@
 {
   "title": "gccom-mole-experiments: verification and validation of a mimetic internal-wave solver on fully curvilinear grids",
-  "description": "Two-dimensional linear non-hydrostatic internal-wave solver on fully curvilinear grids using the MOLE mimetic operator library. Verified against the exact dispersion relation of a free internal seiche (second-order convergence to zero once the lateral Robin regularisation is small). Validation against the internal-wave-beam benchmark of Garcia et al. (2019), J. Comput. Sci. 30:143-156, sec. 3.3, is in progress: earlier 20-period beam-angle results were found not to be converged in time and are being re-measured with a smooth forcing ramp, and a numerical instability near steeper topography on fine grids has been identified, reproduced cheaply, and is under investigation. Includes a grid/operator cache and an optional multithreaded PARDISO pressure solver.",
+  "description": "Two-dimensional linear non-hydrostatic internal-wave solver on fully curvilinear grids using the MOLE mimetic operator library. The discretization is verified against the exact dispersion relation of a free internal seiche (second order) and by dynamical similarity between domains of different depth. Three defects were found and fixed: the lateral Robin regularisation parameter, an unramped start-up transient, and a one-way buoyancy coupling at a sloping bed that leaked energy and drove a numerical instability over topography. With these in place the beam angle converges to linear theory at both frequencies tested (+0.12 deg at omega/N = 0.8, +0.37 deg at 0.6) when measured over a fixed fraction of a bounce; the residual disagreement with the published benchmark of Garcia et al. (2019), J. Comput. Sci. 30:143-156, sec. 3.3 is traced to a fit window fixed in metres, which samples different parts of the beam at different frequencies. Includes a grid/operator cache and an optional GPU path (cuDSS) that runs 28x faster per step than the CPU default.",
   "upload_type": "software",
   "license": "GPL-3.0-or-later",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "creators": [
     {
       "name": "Valera, Manuel"

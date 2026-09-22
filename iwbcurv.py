@@ -38,12 +38,14 @@ THE BED CONDITION (--bedmode, default 'constraint')
   left of L, the physical contravariant flux over h_eta on the right, and
   bnd2's w = (z_xi/x_xi) u in bc_residual().  --bsc was one scalar trying to
   reconcile operators that differ point by point on a curved bed, which it
-  cannot; hence a bed residual with a floor no bsc gets under, an accuracy
+  cannot
+  hence a bed residual with a floor no bsc gets under, an accuracy
   lower bound and a stability upper bound, and those bounds closing at
   Lx = 6 km.
   'constraint' puts the condition INTO L instead.  D*G is empty on the ghost
   ring, so the bottom/top ghost rows are free to carry C*G, where C is the
-  bnd2 relation as a matrix; the rhs there carries C*u*/dt.  Then
+  bnd2 relation as a matrix
+  the rhs there carries C*u*/dt.  Then
       C u = C(u* - dt G phi) = C u* - dt (C u*/dt) = 0
   exactly, on any grid, with nothing to tune.  Left/right keep their Robin
   rows so alpha still removes the constant nullvector.
@@ -51,10 +53,12 @@ THE BED CONDITION (--bedmode, default 'constraint')
 
 GRID DIAGNOSTICS PRINTED BEFORE ANY PHYSICS
   jacobian sign        -- must not change sign anywhere (folded grid)
-  hydrostatic r_x      -- Shchepetkin & McWilliams (2003) Eq. 2.10; > 1 means
+  hydrostatic r_x      -- Shchepetkin & McWilliams (2003) Eq. 2.10
+  > 1 means
                           vertical interpolation of density becomes
                           extrapolation and the pressure-gradient force
-                          degrades.  NOTE the stencil runs along ETA; getting
+                          degrades.  NOTE the stencil runs along ETA
+                          getting
                           the axis wrong divides by ~0 and gives ~1e31.
   lepticity            -- Vitousek & Fringer (2011): Gamma = K*lambda^2 with
                           lambda = dx/h_e, h_e = sqrt(3)/pi * D for linear
@@ -84,7 +88,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 
 def el():
     s = time.time() - T0
-    h, r = divmod(int(s), 3600); m, sec = divmod(r, 60)
+    h, r = divmod(int(s), 3600)
+    m, sec = divmod(r, 60)
     return f"{h}:{m:02d}:{sec:02d}" if h else f"{m:02d}:{sec:02d}"
 
 
@@ -153,6 +158,55 @@ def _unpack_ops(z, names):
 # the matrix is unchanged (an O(nnz) comparison), which is safe here because L
 # is fixed for the whole run. Thread count follows MKL_NUM_THREADS.
 # ---------------------------------------------------------------------------
+class _CudssLU:
+    """Factor once on the GPU with NVIDIA cuDSS (via nvmath-python), solve many.
+
+    Mirrors exactly the call sequence verified in solver_bench.py: plan and
+    factorize once, then for every right-hand side reset_operands(b=...) and
+    solve(). FP64 throughout -- the benchmark showed FP32 on this matrix loses
+    the accuracy the projection needs. Operands stay host (numpy) arrays, so the
+    PCIe transfers are included in the measured ~6 ms per solve.
+    """
+    def __init__(self, A, device=False):
+        from nvmath.sparse.advanced import DirectSolver
+        Ah = sp.csr_matrix(A, dtype=np.float64)
+        Ah.sort_indices()
+        self.device = device
+        if device:
+            # operands on the GPU: the factors, the right-hand side and the
+            # solution never leave the card
+            import cupy as cp
+            import cupyx.scipy.sparse as csp
+            self.cp = cp
+            self.A = csp.csr_matrix(Ah)
+            self._b = cp.zeros((Ah.shape[0], 1))
+        else:
+            self.A = Ah
+            self._b = np.zeros((Ah.shape[0], 1))
+        self.s = DirectSolver(self.A, self._b)
+        self.s.plan()
+        self.s.factorize()
+
+    def solve(self, b):
+        if self.device:
+            cp = self.cp
+            host = isinstance(b, np.ndarray)             # pre-loop checks pass numpy
+            bd = cp.ascontiguousarray(cp.asarray(b, dtype=cp.float64).reshape(-1, 1))
+            self.s.reset_operands(b=bd)
+            x = self.s.solve().ravel()
+            cp.cuda.get_current_stream().synchronize()   # honest solve timing
+            return cp.asnumpy(x) if host else x
+        b2 = np.ascontiguousarray(np.asarray(b, dtype=np.float64).reshape(-1, 1))
+        self.s.reset_operands(b=b2)
+        return np.asarray(self.s.solve()).ravel()
+
+    def __del__(self):
+        try:
+            self.s.free()
+        except Exception:
+            pass
+
+
 class _PardisoLU:
     def __init__(self, A):
         from pypardiso import PyPardisoSolver
@@ -175,7 +229,8 @@ def _growth_report(hist):
     whole-domain ||w|| and for the near-ridge box, where the mode lives."""
     if len(hist) < 4:
         return
-    h = np.array(hist); k = len(h) // 2
+    h = np.array(hist)
+    k = len(h) // 2
     for col, name in ((3, 'ridge ||w||'), (2, 'domain ||w||')):
         sl = np.polyfit(h[k:, 0], np.log(h[k:, col]), 1)[0]
         ef = (1.0/sl) if sl != 0 else np.inf
@@ -199,7 +254,8 @@ def splice_bed_rows(L, CG, bedidx, eq='auto'):
     """Replace rows `bedidx` of L with the rows of CG (scaled).
 
     Returns (L_new, bedsc).  The caller must scale the corresponding rhs
-    entries by the SAME bedsc; scaling an equation and its right-hand side by
+    entries by the SAME bedsc
+    scaling an equation and its right-hand side by
     the same number leaves the solution unchanged, which is what makes the
     equilibration bookkeeping rather than a tuned coefficient.
 
@@ -211,7 +267,8 @@ def splice_bed_rows(L, CG, bedidx, eq='auto'):
         raise ValueError(f"{bedidx.size} bed rows vs {nbed} constraints")
     if len(np.unique(bedidx)) != nbed:
         raise ValueError("bed row indices are not distinct")
-    L = L.tocsr(); CG = CG.tocsr()
+    L = L.tocsr()
+    CG = CG.tocsr()
     if eq == 'auto':
         rmax = np.abs(L).max(axis=1).toarray().ravel()
         ref = np.median(rmax[rmax > 0])
@@ -219,7 +276,8 @@ def splice_bed_rows(L, CG, bedidx, eq='auto'):
         bedsc = ref / np.maximum(cmax, 1e-300)
     else:
         bedsc = np.ones(nbed)
-    keep = np.ones(nc); keep[bedidx] = 0.0
+    keep = np.ones(nc)
+    keep[bedidx] = 0.0
     Pb = sp.csr_matrix((np.ones(nbed), (bedidx, np.arange(nbed))),
                        shape=(nc, nbed))
     return (sp.diags(keep) @ L + Pb @ (sp.diags(bedsc) @ CG)).tocsr(), bedsc
@@ -227,10 +285,13 @@ def splice_bed_rows(L, CG, bedidx, eq='auto'):
 
 def grid_diag(X, Z, nx, nz, phi_nh):
     """X, Z are (xi, eta).  Returns True if the grid looks usable."""
-    xx = np.gradient(X, axis=0); xh = np.gradient(X, axis=1)
-    zx = np.gradient(Z, axis=0); zh = np.gradient(Z, axis=1)
+    xx = np.gradient(X, axis=0)
+    xh = np.gradient(X, axis=1)
+    zx = np.gradient(Z, axis=0)
+    zh = np.gradient(Z, axis=1)
     J = xx * zh - xh * zx
-    a_ = np.stack([xx, zx]); b_ = np.stack([xh, zh])
+    a_ = np.stack([xx, zx])
+    b_ = np.stack([xh, zh])
     c_ = (a_ * b_).sum(0) / (np.linalg.norm(a_, axis=0) * np.linalg.norm(b_, axis=0) + 1e-30)
     ang = np.degrees(np.arccos(np.clip(c_, -1, 1)))
     ok = True
@@ -246,7 +307,10 @@ def grid_diag(X, Z, nx, nz, phi_nh):
           f"-> {'FULLY CURVILINEAR' if wander > 1 else 'still a sigma grid'}")
 
     # Shchepetkin & McWilliams Eq 2.10.  Columns run along ETA for (xi,eta).
-    z1 = Z[:-1, :-1]; z2 = Z[:-1, 1:]; z3 = Z[1:, :-1]; z4 = Z[1:, 1:]
+    z1 = Z[:-1, :-1]
+    z2 = Z[:-1, 1:]
+    z3 = Z[1:, :-1]
+    z4 = Z[1:, 1:]
     den = np.abs(z4 - z3 + z2 - z1)
     rx = np.abs(z4 + z3 - z2 - z1) / np.maximum(den, 1e-12)
     if den.min() < 1e-9:
@@ -257,7 +321,8 @@ def grid_diag(X, Z, nx, nz, phi_nh):
         print(f"  [{el()}] r_x       : max {rx.max():.3f}  median {np.median(rx):.3f}  "
               f"{'*** VIOLATED (>1) ***' if bad else 'OK (<1)'}")
 
-    dx = LX / (nx - 1); dz = D0 / (nz - 1)
+    dx = LX / (nx - 1)
+    dz = D0 / (nz - 1)
     he = np.sqrt(3) / np.pi * D0
     lam = dx / he
     print(f"  [{el()}] resolution: dx={dx:.1f} m  dz={dz:.1f} m  aspect {dz/dx:.3f}")
@@ -373,17 +438,31 @@ def main():
                          '(projected to be divergence-free and bed-consistent). With '
                          '--u0 0 this is a FREE run: no tide, so any growth is an '
                          'instability of the discretised equations, not the forcing.')
+    ap.add_argument('--buoy', default='logical', choices=['logical', 'energy'],
+                    help='buoyancy coupling. logical = MOLE interpolD2D in logical\n'
+                         'space (original). energy = the exact adjoint of Ic_z in the\n'
+                         'physical-area inner product, so the w<->b exchange conserves\n'
+                         'discrete energy on non-uniform cells. Ablation: with --N 0 the\n'
+                         'topographic instability vanishes, so it lives in this coupling.')
     ap.add_argument('--probe', action='store_true',
                     help='log ||u||, ||w|| every period and fit the growth rate of '
                          '||w|| over the second half of the run (e-folding time in '
                          'periods; positive = growing).')
+    ap.add_argument('--device', default='cpu', choices=['cpu', 'gpu'],
+                    help='where the time loop runs. gpu keeps every field and operator on\n'
+                         'the GPU (CuPy) and solves with cuDSS on device arrays, so nothing\n'
+                         'crosses the PCIe bus per step. Requires --solver cudss and\n'
+                         '--bedmode constraint or none.')
     ap.add_argument('--ramp', type=float, default=0.0,
                     help='ramp the tidal forcing on smoothly over this many periods '
                          '(0 = abrupt start, the original behaviour). Shortens the '
                          'spin-up transient; make sure --nper minus the 10-period '
                          'averaging window still starts well after the ramp ends.')
-    ap.add_argument('--solver', default='superlu', choices=['superlu', 'pardiso'],
-                    help='pressure solver. pardiso = MKL PARDISO via pypardiso, '
+    ap.add_argument('--solver', default='superlu', choices=['superlu', 'pardiso', 'cudss'],
+                    help='pressure solver. pardiso = MKL PARDISO via pypardiso; '
+                         'cudss = NVIDIA cuDSS on the GPU via nvmath-python, FP64 '
+                         '(25x faster than SuperLU per solve on an RTX 4060 Ti at '
+                         '896x351, residual 3e-16). '
                          'multithreaded (threads: MKL_NUM_THREADS). Verify any '
                          'change of solver against --seiche before trusting it.')
     ap.add_argument('--cache', default='.gridcache',
@@ -397,7 +476,8 @@ def main():
     g = ap.parse_args()
     globals()['_BEAT'] = g.beat
     LX, D0 = g.Lx, g.D0
-    globals()['LX'] = LX; globals()['D0'] = D0
+    globals()['LX'] = LX
+    globals()['D0'] = D0
     # gridGen resolves the boundary curves from the working directory, so the
     # geometry is handed to them through a generated geom_over.m rather than
     # by editing four .m files.
@@ -453,6 +533,13 @@ def main():
                 break
         return
 
+    if g.device == 'gpu':
+        if g.solver != 'cudss':
+            print("\n  *** --device gpu needs --solver cudss ***\n")
+            return
+        if g.bedmode not in ('constraint', 'none'):
+            print("\n  *** --device gpu supports --bedmode constraint or none only ***\n")
+            return
     use_cache = not g.no_cache
     if use_cache:
         _code = _tree_hash([g.mole, os.path.join(g.grids, 'iwbridge')])
@@ -464,30 +551,36 @@ def main():
     def _octave():
         from oct2py import Oct2Py       # imported here so this module can be
         o = Oct2Py()                    # imported without Octave, for tests
-        o.addpath(g.mole); o.addpath(os.path.join(g.grids, 'iwbridge'))
+        o.addpath(g.mole)
+        o.addpath(os.path.join(g.grids, 'iwbridge'))
         return o
 
     if use_cache and os.path.isfile(gpath):
-        _z = np.load(gpath); X = _z['X']; Z = _z['Z']
+        _z = np.load(gpath)
+        X = _z['X']
+        Z = _z['Z']
         print(f"  [{el()}] grid from cache ({os.path.basename(gpath)})", flush=True)
     else:
         print(f"  [{el()}] generating grid (TFI, position-dependent beta) ...", flush=True)
         oc = _octave()
-        here = os.getcwd(); os.chdir(g.grids)
+        here = os.getcwd()
+        os.chdir(g.grids)
         try:
             oc.eval(f"global BT BB BULGE; BT={g.bt}; BB={g.bb}; BULGE={g.bulge};")
             oc.eval(f"cd('{g.grids.replace(os.sep,'/')}'); "
                     f"[X,Z]=gridGen('TFI','iwbridge',{g.nx},{g.nz},false);")
         finally:
             os.chdir(here)
-        X = oc.pull('X'); Z = oc.pull('Z')
+        X = oc.pull('X')
+        Z = oc.pull('Z')
         if use_cache:
             _atomic_savez(gpath, X=X, Z=Z)
 
     ok = grid_diag(X, Z, g.nx, g.nz, phi_nh)
     if g.gridonly:
         if oc is not None: oc.exit()
-        print("\n  (--gridonly: stopping here)\n"); return
+        print("\n  (--gridonly: stopping here)\n")
+        return
     if not ok and not g.forcegrid:
         if oc is not None: oc.exit()
         print("\n  *** grid diagnostics failed -- fix the grid before running ***\n")
@@ -497,7 +590,8 @@ def main():
 
     # MOLE wants (eta, xi); gridGen returns (xi, eta).  Transposing two axes is
     # an ODD permutation and flips the Jacobian sign, so this must be explicit.
-    XM = X.T.copy(); ZM = Z.T.copy()
+    XM = X.T.copy()
+    ZM = Z.T.copy()
     m, n = g.nx - 1, g.nz - 1
     dxr, dzr = LX / m, D0 / n
     _names = ('G', 'D', 'B', 'Ic', 'Idf')
@@ -511,7 +605,8 @@ def main():
     else:
         if oc is None:
             oc = _octave()
-        oc.push('Xm', XM); oc.push('Zm', ZM)
+        oc.push('Xm', XM)
+        oc.push('Zm', ZM)
         oc.eval(f"k={g.order}; m={m}; n={n}; dx={dxr}; dz={dzr};")
         oc.eval("J2=jacobian2D(k,Xm,Zm);")
         J2 = oc.pull('J2').ravel()
@@ -539,9 +634,12 @@ def main():
     # and the forcing lands in the wrong rows -- symptom is a barotropic flow
     # 5x stronger at the top and bottom than at mid-depth, when it should be
     # nearly depth-uniform.
-    Zf = 0.5 * (ZM[:, :-1] + ZM[:, 1:]); Xf = 0.5 * (XM[:, :-1] + XM[:, 1:])
-    xw = Xf.ravel(); zw = Zf.ravel()
-    Xu = 0.5 * (XM[:-1, :] + XM[1:, :]); xu = Xu.ravel()
+    Zf = 0.5 * (ZM[:, :-1] + ZM[:, 1:])
+    Xf = 0.5 * (XM[:, :-1] + XM[:, 1:])
+    xw = Xf.ravel()
+    zw = Zf.ravel()
+    Xu = 0.5 * (XM[:-1, :] + XM[1:, :])
+    xu = Xu.ravel()
     assert xu.size == nu_ and xw.size == nw_, "face coordinate ordering mismatch"
 
     Lsl = g.lsl * LX
@@ -551,6 +649,52 @@ def main():
     Ic_z = Ic[nu_:, :].tocsr()
     Idf_w = Idf[:, nu_:].tocsr()
     Idf_u = Idf[:, :nu_].tocsr()
+
+    # ------------------------------------------------------------------
+    # Buoyancy coupling.  The w-momentum is forced by Ic_z @ b (centres ->
+    # w-faces) and the buoyancy by Idf_w @ w (w-faces -> centres).  MOLE's pair
+    # is NOT adjoint at the boundaries, in any inner product: the bed face f0
+    # takes its buoyancy from the boundary point c0 alone, while the first
+    # interior cell c1 takes half of ITS forcing from f0.  So c1 is driven by
+    # w_bed but w_bed is never driven by c1 -- a one-way coupling.
+    #
+    # On a flat bottom w_bed = 0 and the term vanishes (the seiche never sees
+    # it).  Over a sloping bed w_bed = slope * u, so energy leaks in exactly at
+    # the ridge, growing with steepness -- and with --N 0 the instability goes
+    # away.  --buoy energy keeps Idf_w (a cell's w is the average of its two
+    # faces, which is physically right) and replaces Ic_z by its adjoint in the
+    # physical-area inner product:
+    #       Ic_z  ->  M_w^-1  Idf_w^T  M_c,
+    # M_c = cell areas (boundary points weight 0), M_w = half the areas of the
+    # cells either side of each face.  Every row then sums to exactly 1, the bed
+    # face feels the buoyancy of the cell above it, and the w<->b exchange
+    # conserves discrete energy exactly.
+    # ------------------------------------------------------------------
+    Rfused = None
+    Ic_zb = Ic_z
+    if g.buoy == 'energy':
+        _x, _z = XM, ZM                                   # (n+1) x (m+1) nodes, rows = eta
+        _A = 0.5 * np.abs((_x[:-1, 1:] - _x[:-1, :-1]) * (_z[1:, :-1] - _z[:-1, :-1])
+                          - (_x[1:, :-1] - _x[:-1, :-1]) * (_z[:-1, 1:] - _z[:-1, :-1])) \
+           + 0.5 * np.abs((_x[1:, 1:] - _x[1:, :-1]) * (_z[1:, 1:] - _z[:-1, 1:])
+                          - (_x[1:, 1:] - _x[:-1, 1:]) * (_z[1:, 1:] - _z[1:, :-1]))
+        _Mw = np.zeros((n + 1, m))                        # w-face row j sits between cells j-1 and j
+        _Mw[1:-1, :] = 0.5 * (_A[:-1, :] + _A[1:, :])
+        _Mw[0, :] = 0.5 * _A[0, :]
+        _Mw[-1, :] = 0.5 * _A[-1, :]
+        _Mc = np.zeros((n + 2, m + 2))
+        _Mc[1:-1, 1:-1] = _A
+        Ic_zb = (sp.diags(1.0 / _Mw.ravel()) @ Idf_w.T @ sp.diags(_Mc.ravel())).tocsr()
+        _rs = np.asarray(Ic_zb.sum(axis=1)).ravel()
+        _dd = abs(Ic_zb - Ic_z).max()
+        # exact energy check of the exchange: <w, Ic_zb b>_Mw == <Idf_w w, b>_Mc
+        _rng = np.random.default_rng(3)
+        _wv, _bv = _rng.standard_normal(nw_), _rng.standard_normal(nc)
+        _l = _wv @ (_Mw.ravel() * (Ic_zb @ _bv))
+        _r = (Idf_w @ _wv) @ (_Mc.ravel() * _bv)
+        print(f"  [{el()}] buoyancy coupling: energy-adjoint Ic_z; row sums "
+              f"{_rs.min():.6f}..{_rs.max():.6f}; max change vs MOLE {_dd:.3e}; "
+              f"adjointness error {abs(_l-_r)/abs(_l):.1e}")
 
     # ------------------------------------------------------------------
     # Bottom / top no-normal-flow.  WITHOUT THIS THERE IS NO INTERNAL TIDE:
@@ -570,7 +714,8 @@ def main():
     for jp_, jc in ((0, 0), (n, n - 1)):
         zx_ = np.gradient(ZM[jp_, :])           # dz/dxi along that boundary
         xx_ = np.gradient(XM[jp_, :])
-        zc_ = 0.5 * (zx_[:-1] + zx_[1:]); xc_ = 0.5 * (xx_[:-1] + xx_[1:])
+        zc_ = 0.5 * (zx_[:-1] + zx_[1:])
+        xc_ = 0.5 * (xx_[:-1] + xx_[1:])
         ratio_ = zc_ / np.where(np.abs(xc_) < 1e-12, 1e-12, xc_)
         bnd2.append((iw2[jp_, :], iu2[jc, :-1], iu2[jc, 1:], ratio_))
     print(f"  [{el()}] bottom/top BC: w = (z_xi/x_xi) u   "
@@ -646,17 +791,23 @@ def main():
     bedrows, bednrm = [], []
     for jg, jp_, jc, sgn in ((0, 0, 0, -1.0), (n + 1, n, n - 1, +1.0)):
         # tangent along the boundary and the local normal
-        zx_ = np.gradient(ZM[jp_, :]); xx_ = np.gradient(XM[jp_, :])
-        zc_ = 0.5 * (zx_[:-1] + zx_[1:]); xc_ = 0.5 * (xx_[:-1] + xx_[1:])
-        nx_ = -zc_; nz_ = xc_
-        ln = np.hypot(nx_, nz_); nx_ = nx_ / ln; nz_ = nz_ / ln
+        zx_ = np.gradient(ZM[jp_, :])
+        xx_ = np.gradient(XM[jp_, :])
+        zc_ = 0.5 * (zx_[:-1] + zx_[1:])
+        xc_ = 0.5 * (xx_[:-1] + xx_[1:])
+        nx_ = -zc_
+        nz_ = xc_
+        ln = np.hypot(nx_, nz_)
+        nx_ = nx_ / ln
+        nz_ = nz_ / ln
         # PER-FACE metric factor.  robinBC2D expresses dphi/dn in COMPUTATIONAL
         # units; grad2DCurv returns a PHYSICAL gradient.  The conversion is the
         # physical distance spanned by one eta step at this xi station, which
         # varies point-to-point on a curvilinear boundary -- so a single global
         # scalar can only ever fit it on average (measured floor: bed residual
         # 3.2e-02 with the best global constant).  h_eta = |r_eta| locally.
-        j2 = min(jp_ + 1, n); j1 = max(jp_ - 1, 0)
+        j2 = min(jp_ + 1, n)
+        j1 = max(jp_ - 1, 0)
         dxe = 0.5 * (XM[j2, :] - XM[j1, :]) * (2.0 / max(j2 - j1, 1))
         dze = 0.5 * (ZM[j2, :] - ZM[j1, :]) * (2.0 / max(j2 - j1, 1))
         he = np.hypot(dxe, dze)
@@ -703,6 +854,14 @@ def main():
         # unchanged -- that is what makes this not a --bsc, and --bedeq unit is
         # the test of it.
         L, bedsc = splice_bed_rows(L, C @ G, bedidx, g.bedeq)
+        # Fused right-hand side: R @ v gives exactly what (D @ v) followed by
+        # rhs[bedidx] = bedsc * (C @ v) gives -- same rows, same scaling -- in
+        # one sparse product per step instead of two plus an indexed overwrite.
+        _keep = np.ones(D.shape[0])
+        _keep[bedidx] = 0.0
+        _Pb = sp.csr_matrix((np.ones(bedidx.size), (bedidx, np.arange(bedidx.size))),
+                            shape=(D.shape[0], bedidx.size))
+        Rfused = (sp.diags(_keep) @ D + _Pb @ (sp.diags(bedsc) @ C)).tocsr()
         print(f"  [{el()}] constraint row equilibration: "
               f"x{bedsc.min():.2e} .. {bedsc.max():.2e} "
               f"(cancels out of the solution; check with --bedeq unit)")
@@ -718,6 +877,9 @@ def main():
         lu = _PardisoLU(L)
         print(f"  [{el()}] pardiso factorise {time.time()-t:.1f}s  "
               f"(MKL_NUM_THREADS={os.environ.get('MKL_NUM_THREADS', 'default')})")
+    elif g.solver == 'cudss':
+        lu = _CudssLU(L, device=(g.device == 'gpu'))
+        print(f"  [{el()}] cudss factorise {time.time()-t:.1f}s  (GPU, FP64)")
     else:
         lu = spl.splu(L)
         print(f"  [{el()}] splu {time.time()-t:.1f}s")
@@ -785,45 +947,56 @@ def main():
         print(f"  [{el()}] seiche mode ({I_},{J_}): exact omega = {om_ex:.6e} 1/s"
               f"  T = {T_ex:.2f} s   dt = {dt:.3f} s   {nt} steps")
 
-        xp_u = Xu.ravel() + LX / 2.0; zp_u = Zu.ravel() + D0
-        xp_w = Xf.ravel() + LX / 2.0; zp_w = Zf.ravel() + D0
+        xp_u = Xu.ravel() + LX / 2.0
+        zp_u = Zu.ravel() + D0
+        xp_w = Xf.ravel() + LX / 2.0
+        zp_w = Zf.ravel() + D0
         u = -(pz / kx) * np.sin(kx * xp_u) * np.cos(pz * zp_u)
         w = np.cos(kx * xp_w) * np.sin(pz * zp_w)
         wref = w.copy()
-        b = np.zeros(nc); gp = np.zeros(nu_ + nw_)
+        b = np.zeros(nc)
+        gp = np.zeros(nu_ + nw_)
 
         # one projection so the initial field is discretely divergence-free
         usw = np.concatenate([u, w])
         rhs = (D @ usw)
         rhs[bedidx] = bedsc * (C @ usw)
-        phi = lu.solve(rhs); gph = G @ phi
-        u -= gph[:nu_]; w -= gph[nu_:]
+        phi = lu.solve(rhs)
+        gph = G @ phi
+        u -= gph[:nu_]
+        w -= gph[nu_:]
         print(f"  [{el()}] initial field projected: "
               f"div {np.abs(D @ np.concatenate([u, w])).max():.2e}  "
               f"bed {np.abs(C @ np.concatenate([u, w])).max():.2e}")
 
         nrm = float(wref @ wref)
-        a_t = np.empty(nt + 1); a_t[0] = (wref @ w) / nrm
+        a_t = np.empty(nt + 1)
+        a_t[0] = (wref @ w) / nrm
         for it in range(1, nt + 1):
             us = u - dt * gp[:nu_]
-            ws = w - dt * gp[nu_:] + dt * (Ic_z @ b)
+            ws = w - dt * gp[nu_:] + dt * (Ic_zb @ b)
             usw = np.concatenate([us, ws])
             rhs = (D @ usw) / dt
             rhs[bedidx] = bedsc * (C @ usw) / dt
-            phi = lu.solve(rhs); gph = G @ phi
-            u = us - dt * gph[:nu_]; w = ws - dt * gph[nu_:]
+            phi = lu.solve(rhs)
+            gph = G @ phi
+            u = us - dt * gph[:nu_]
+            w = ws - dt * gph[nu_:]
             gp = gp + gph
             b = b - dt * Nb**2 * (Idf_w @ w)
             a_t[it] = (wref @ w) / nrm
             if not np.isfinite(a_t[it]) or abs(a_t[it]) > 1e3:
-                print(f"\n  *** seiche DIVERGED at step {it} ***\n"); return
+                print(f"\n  *** seiche DIVERGED at step {it} ***\n")
+                return
 
         # frequency from zero crossings of the modal amplitude, linearly
         # interpolated.  Counting many periods averages the per-crossing error
         # down; a single period would not resolve a 1e-4 relative difference.
-        s_ = np.sign(a_t); idx = np.where(s_[:-1] * s_[1:] < 0)[0]
+        s_ = np.sign(a_t)
+        idx = np.where(s_[:-1] * s_[1:] < 0)[0]
         if len(idx) < 3:
-            print("  *** fewer than 3 zero crossings; raise --nper ***"); return
+            print("  *** fewer than 3 zero crossings; raise --nper ***")
+            return
         tc = np.array([(i + a_t[i] / (a_t[i] - a_t[i + 1])) * dt for i in idx])
         half = np.diff(tc)
         om_num = np.pi / half.mean()
@@ -836,7 +1009,8 @@ def main():
               f"  spp={g.spp}\n")
         return
 
-    dt = T / g.spp; nt = int(g.nper * T / dt)
+    dt = T / g.spp
+    nt = int(g.nper * T / dt)
     print(f"  [{el()}] dt={dt:.2f} s  ({nt} steps, {g.spp}/period)  T={T:.1f} s")
 
     # Sponge stability.  The relaxation -(u-ubc)/taus*sl is EXPLICIT, so
@@ -860,9 +1034,14 @@ def main():
     # beam AND every reflection with equal weight, so weak reflections build
     # into a visible family of arms; a single-phase snapshot lets the primary
     # beam dominate and shows the red/blue phase banding across it.
-    snap_u = None; snap_t = -1.0
-    u = np.zeros(nu_); w = np.zeros(nw_); b = np.zeros(nc)
-    gp = np.zeros(nu_ + nw_); acc = np.zeros(nc); nacc = 0
+    snap_u = None
+    snap_t = -1.0
+    u = np.zeros(nu_)
+    w = np.zeros(nw_)
+    b = np.zeros(nc)
+    gp = np.zeros(nu_ + nw_)
+    acc = np.zeros(nc)
+    nacc = 0
     # Growth-based divergence detector.  Testing isfinite alone is useless: a
     # run can grow 14 orders of magnitude and still report a plausible angle,
     # because a blow-up has a huge peak-to-mean ratio by construction.  The
@@ -893,11 +1072,13 @@ def main():
         _rng = np.random.default_rng(1)
         u = g.noise * _rng.standard_normal(nu_)
         w = g.noise * _rng.standard_normal(nw_)
-        _usw = np.concatenate([u, w]); _rhs = D @ _usw
+        _usw = np.concatenate([u, w])
+        _rhs = D @ _usw
         if g.bedmode == 'constraint':
             _rhs[bedidx] = bedsc * (C @ _usw)
         _gph = G @ lu.solve(_rhs)
-        u -= _gph[:nu_]; w -= _gph[nu_:]
+        u -= _gph[:nu_]
+        w -= _gph[nu_:]
         print(f"  [{el()}] random initial field, amplitude {g.noise:g}, projected: "
               f"||u|| {np.linalg.norm(u):.3e}  ||w|| {np.linalg.norm(w):.3e}")
     _hist = []
@@ -909,7 +1090,36 @@ def main():
         _zw = (0.5 * (ZM[:, :-1] + ZM[:, 1:])).ravel()
         _box = (np.abs(_xw) < 150.0) & (_zw < -D0 + 150.0)
         print(f"  [{el()}] probe box |x|<150 m, bottom 150 m: {int(_box.sum())} w-faces")
-    t0 = time.time(); beat(f"time loop: {nt} steps", force=True)
+    # ------------------------------------------------------------------
+    # Device selection. The loop below is written once against `xp` (numpy or
+    # cupy) and the underscore-named operators; on the CPU these are the very
+    # same objects as before, so the CPU path is unchanged. On the GPU every
+    # field, mask and operator is copied to the card once, here, and only the
+    # occasional diagnostic and the final fields come back.
+    # ------------------------------------------------------------------
+    xp = np
+    _Iz, _G, _Iw, _Iu = Ic_zb, G, Idf_w, Idf_u
+    _R = Rfused if Rfused is not None else D
+    _slu, _slw = slu, slw
+    _boxd = _box if g.probe else None
+    _h = lambda a: a
+    if g.device == 'gpu':
+        import cupy as cp
+        import cupyx.scipy.sparse as csp
+        xp = cp
+        _toG = lambda M: csp.csr_matrix(sp.csr_matrix(M, dtype=np.float64))
+        _Iz, _G, _Iw, _Iu, _R = [_toG(M) for M in (_Iz, _G, _Iw, _Iu, _R)]
+        u, w, b, gp, acc = [cp.asarray(a) for a in (u, w, b, gp, acc)]
+        _slu, _slw = cp.asarray(slu), cp.asarray(slw)
+        if g.probe:
+            _boxd = cp.asarray(_box)
+        _h = cp.asnumpy
+        _free, _tot = cp.cuda.runtime.memGetInfo()
+        print(f"  [{el()}] time loop on the GPU: fields and operators resident; "
+              f"{(_tot-_free)/2**20:.0f}/{_tot/2**20:.0f} MiB in use")
+    _tsolve = 0.0
+    t0 = time.time()
+    beat(f"time loop: {nt} steps", force=True)
     for it in range(1, nt + 1):
         t = it * dt
         # Smooth start. Switching the tide on abruptly at t = 0 kicks the whole
@@ -920,30 +1130,34 @@ def main():
         _rt = g.ramp * T
         _rf = 1.0 if (_rt <= 0 or t >= _rt) else 0.5 * (1.0 - np.cos(np.pi * t / _rt))
         ubc = g.u0 * _rf * np.sin(om * t)
-        us = u - dt * gp[:nu_] - dt * (u - ubc) / g.taus * slu
-        ws = w - dt * gp[nu_:] + dt * (Ic_z @ b) - dt * w / g.taus * slw
-        usw = np.concatenate([us, ws])
-        rhs = (D @ usw) / dt
-        if g.bedmode == 'constraint':
-            rhs[bedidx] = bedsc * (C @ usw) / dt
-        elif g.bedmode == 'projection':
-            rhs = bed_rhs(us, ws, rhs, g.bsc)
-        gphi = G @ lu.solve(rhs)
+        us = u - dt * gp[:nu_] - dt * (u - ubc) / g.taus * _slu
+        ws = w - dt * gp[nu_:] + dt * (_Iz @ b) - dt * w / g.taus * _slw
+        usw = xp.concatenate([us, ws])
+        if Rfused is not None or g.device == 'gpu':
+            rhs = (_R @ usw) / dt
+        else:
+            rhs = (D @ usw) / dt
+            if g.bedmode == 'projection':
+                rhs = bed_rhs(us, ws, rhs, g.bsc)
+        _tq = time.perf_counter()
+        _phi = lu.solve(rhs)
+        _tsolve += time.perf_counter() - _tq
+        gphi = _G @ _phi
         u = us - dt * gphi[:nu_]
         w = ws - dt * gphi[nu_:]
         if g.bedmode == 'post':
             w = apply_bed(u, w)
         gp = gp + gphi
-        wc = Idf_w @ w
+        wc = _Iw @ w
         b = b - dt * Nb**2 * wc
         if g.probe and it % g.spp == 0:
-            _nu, _nw = float(np.linalg.norm(u)), float(np.linalg.norm(w))
-            _nb = float(np.linalg.norm(w[_box])) if _box.any() else _nw
+            _nu, _nw = float(xp.linalg.norm(u)), float(xp.linalg.norm(w))
+            _nb = float(xp.linalg.norm(w[_boxd])) if _box.any() else _nw
             _hist.append((t / T, _nu, _nw, _nb))
             print(f"    probe t/T={t/T:6.1f}  ||u||={_nu:.4e}  ||w||={_nw:.4e}  "
-                  f"ridge ||w||={_nb:.4e}  max|w|={np.abs(w).max():.3e}", flush=True)
+                  f"ridge ||w||={_nb:.4e}  max|w|={float(xp.abs(w).max()):.3e}", flush=True)
         if it % max(1, nt // 5) == 0:
-            rd, rb = bc_residual(u, w)
+            rd, rb = bc_residual(_h(u), _h(w))
             if rd < 1e-8 and rb < 1e-8:
                 verdict = 'BOTH OK'
             elif rd >= 1e-8 and rb >= 1e-8:
@@ -957,7 +1171,7 @@ def main():
             print("    [%s] consistency: div %.2e  bed %.2e   %s"
                   % (el(), rd, rb, verdict), flush=True)
         if it % 20 == 0:
-            mu = np.abs(u).max()
+            mu = float(xp.abs(u).max())
             if (not np.isfinite(mu)) or mu > ulim:
                 _ref_txt = (f"{mu/g.u0:.1f}x the forcing amplitude u0={g.u0}" if g.u0 > 0
                             else f"{mu/g.noise:.1f}x the initial noise amplitude {g.noise:g}")
@@ -970,7 +1184,9 @@ def main():
             beat(f"step {it}/{nt} ({100*it/nt:.0f}%)  ETA {(nt-it)*rate/60:.1f} min")
         # nearest step to each u_bc = 0 crossing in the second half
         if t / T > g.nper - 10 and abs(np.sin(om * t)) < np.sin(om * dt):
-            snap_u = (Idf_u @ u).copy(); snap_w = (Idf_w @ w).copy(); snap_t = t
+            snap_u = (_Iu @ u).copy()
+            snap_w = (_Iw @ w).copy()
+            snap_t = t
         if t / T > g.nper - 10:
             # Which field tracks the beam?
             #   'w'      vertical velocity -- the barotropic tide is horizontal
@@ -978,18 +1194,21 @@ def main():
             #   'speed'  |u|^2+|w|^2 -- swamped by the barotropic u (~5e-3)
             #            which is several times the beam signal (~1e-3)
             #   'ubc'    u with the depth mean removed = baroclinic u
-            uc_ = Idf_u @ u
+            # uc_ is only needed for the 'speed' and 'ubc' fields; the default 'w'
+            # used to pay for an unused sparse product on every averaged step.
             if g.field == 'w':
                 acc += wc**2
             elif g.field == 'speed':
+                uc_ = _Iu @ u
                 acc += uc_**2 + wc**2
             else:                                   # 'ubc'
+                uc_ = _Iu @ u
                 U2 = uc_.reshape(m+2, n+2)
                 acc += (U2 - U2.mean(axis=1, keepdims=True)).ravel()**2 + wc**2
             nacc += 1
         if it % max(1, nt // 5) == 0:
-            print(f"    [{el()}] t/T={t/T:5.1f}  max|u|={np.abs(u).max():.3e}  "
-                  f"max|w|={np.abs(w).max():.3e}", flush=True)
+            print(f"    [{el()}] t/T={t/T:5.1f}  max|u|={float(xp.abs(u).max()):.3e}  "
+                  f"max|w|={float(xp.abs(w).max()):.3e}", flush=True)
             _LAST[0] = time.time()
 
     # acc is flattened X-FASTEST, so this is reshape(n+2, m+2).  Writing
@@ -997,8 +1216,14 @@ def main():
     # the same transposition trap that flips the Jacobian sign and blows up
     # the r_x stencil.  A scrambled field shows no beam no matter what.
     _tl = time.time() - t0
+    if g.device == 'gpu':
+        u, w, b, gp, acc = [_h(a) for a in (u, w, b, gp, acc)]
+        if snap_u is not None:
+            snap_u, snap_w = _h(snap_u), _h(snap_w)
     print(f"  [{el()}] time loop: {nt} steps in {_tl:.1f} s "
-          f"= {1e3*_tl/max(nt,1):.1f} ms/step  (solver {g.solver})")
+          f"= {1e3*_tl/max(nt,1):.1f} ms/step  (solver {g.solver}: "
+          f"solve {1e3*_tsolve/max(nt,1):.1f}, everything else "
+          f"{1e3*(_tl-_tsolve)/max(nt,1):.1f} ms/step)")
     rms = np.sqrt(acc / max(nacc, 1)).reshape(n + 2, m + 2)
     if g.probe:
         _growth_report(_hist)
@@ -1018,13 +1243,17 @@ def main():
     # coordinates must be used directly -- reconstructing them from a single
     # boundary row plus a sigma-like fraction is only valid on a sigma grid
     # and puts every point in the wrong place.
-    Xcen = np.zeros((n + 2, m + 2)); Zcen = np.zeros((n + 2, m + 2))
+    Xcen = np.zeros((n + 2, m + 2))
+    Zcen = np.zeros((n + 2, m + 2))
     Xin = 0.25*(XM[:-1, :-1] + XM[1:, :-1] + XM[:-1, 1:] + XM[1:, 1:])
     Zin = 0.25*(ZM[:-1, :-1] + ZM[1:, :-1] + ZM[:-1, 1:] + ZM[1:, 1:])
-    Xcen[1:-1, 1:-1] = Xin; Zcen[1:-1, 1:-1] = Zin
+    Xcen[1:-1, 1:-1] = Xin
+    Zcen[1:-1, 1:-1] = Zin
     for Ac in (Xcen, Zcen):                       # fill the ghost ring
-        Ac[0, :] = Ac[1, :]; Ac[-1, :] = Ac[-2, :]
-        Ac[:, 0] = Ac[:, 1]; Ac[:, -1] = Ac[:, -2]
+        Ac[0, :] = Ac[1, :]
+        Ac[-1, :] = Ac[-2, :]
+        Ac[:, 0] = Ac[:, 1]
+        Ac[:, -1] = Ac[:, -2]
 
     pts = []
     for j in range(1, m + 1):
@@ -1037,7 +1266,8 @@ def main():
             continue
         pts.append((abs(xv), zv))
     if len(pts) < 4:
-        print("  too few points for a beam fit"); return
+        print("  too few points for a beam fit")
+        return
     P = np.array(pts)
     A = np.vstack([P[:, 0], np.ones(len(P))]).T
     slope, icpt = np.linalg.lstsq(A, P[:, 1], rcond=None)[0]
