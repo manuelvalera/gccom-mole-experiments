@@ -25,6 +25,22 @@ def load(d):
     return out
 
 
+def quality(z, C, lo, hi, b):
+    """Flag fields the tracker cannot be trusted on: a localised spike in the
+    rms field (max/mean far above the ~10-20 of a clean beam) or a centroid
+    track that is not a line (linear-fit rms above 10 m)."""
+    r = z['rms'][1:-1, 1:-1]
+    r = r[np.isfinite(r)]
+    mm = float(r.max()/r.mean()) if r.size and r.mean() > 0 else np.inf
+    sel = (C[:, 0] >= lo*b) & (C[:, 0] <= hi*b)
+    if sel.sum() < 6:
+        return False, mm, np.inf
+    x, zz = C[sel, 0], C[sel, 1]
+    res = zz - np.polyval(np.polyfit(x, zz, 1), x)
+    lr = float(np.sqrt((res**2).mean()))
+    return (mm < 40.0 and lr < 10.0), mm, lr
+
+
 def centroid_points(z):
     ratio = float(z['ratio']); D0 = float(np.abs(z['Z']).max())
     theta = np.arcsin(ratio); bounce = D0/np.tan(theta)
@@ -56,10 +72,15 @@ def main():
         lims = {}
         for ab in sorted(data):
             hs, es = [], []
+            flags = []
             for g in grids:
                 C, th, b, D0 = centroid_points(data[ab][g])
+                ok, mm, lr = quality(data[ab][g], C, lo, hi, b)
                 a = fit_angle(C, lo*b, hi*b)
-                hs.append(D0/(g[1]-1)); es.append(np.nan if a is None else a - th)
+                hs.append(D0/(g[1]-1))
+                es.append(a - th if (a is not None and ok) else np.nan)
+                if not ok:
+                    flags.append(f"{g[0]-1}x{g[1]-1} (max/mean {mm:.0f}, fit rms {lr:.1f} m)")
             hs, es = np.array(hs), np.array(es)
             good = np.isfinite(es)
             if good.sum() >= 2:
@@ -68,14 +89,23 @@ def main():
             else:
                 e0 = np.nan
             lims[ab] = e0
-            print("%-8g" % ab + "".join("%+-12.2f" % e for e in es) + "%+.2f" % e0)
+            print("%-8g" % ab + "".join(("%+-12.2f" % e) if np.isfinite(e) else "REJECTED    "
+                                        for e in es) + ("%+.2f" % e0 if np.isfinite(e0) else "n/a"))
+            for f in flags:
+                print("        rejected " + f)
         vals = np.array([v for v in lims.values() if np.isfinite(v)])
         if len(vals) >= 2:
             print("   spread of the limit across ridge heights: %.2f deg" % (vals.max() - vals.min()))
 
-    print("\nA linear beam's angle cannot depend on ridge height. A spread well")
-    print("above ~0.2 deg means the barotropic tide is contaminating the rms")
-    print("diagnostic; a spread near zero means the offset is in the beam itself.")
+    print("\nA linear beam's angle cannot depend on ridge height, so any spread is")
+    print("signal. Read its DIRECTION as well as its size:")
+    print("   offset LARGER for a SMALLER ridge -> the barotropic tide is")
+    print("      contaminating the rms diagnostic (the beam is weaker relative")
+    print("      to the tide), and the fix is to track baroclinic rms;")
+    print("   offset LARGER for a LARGER ridge  -> the offset scales with the")
+    print("      topography itself -- grid distortion near the ridge, or the")
+    print("      curved-bed treatment -- and should shrink as the ridge does.")
+    print("Rejected fields are excluded from the limits; inspect them with view.py.")
 
 
 if __name__ == '__main__':

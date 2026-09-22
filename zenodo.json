@@ -1,0 +1,19 @@
+{
+  "title": "gccom-mole-experiments: verification and validation of a mimetic internal-wave solver on fully curvilinear grids",
+  "description": "Two-dimensional linear non-hydrostatic internal-wave solver on fully curvilinear grids using the MOLE mimetic operator library. Includes a seiche verification against the exact dispersion relation (second-order convergence to zero), a study of the lateral Robin regularisation parameter, and validation against the internal-wave-beam benchmark of Garcia et al. (2019), J. Comput. Sci. 30:143-156, sec. 3.3, with the fit-window and tracker dependence of the measured beam angle. Version 1.0.0 leaves open the origin of a residual first-order beam-angle offset of about -1 degree at omega/N = 0.8.",
+  "upload_type": "software",
+  "license": "GPL-3.0-or-later",
+  "version": "1.0.1",
+  "creators": [
+    {
+      "name": "Valera, Manuel"
+    }
+  ],
+  "keywords": [
+    "mimetic operators",
+    "internal waves",
+    "curvilinear grids",
+    "ocean modeling",
+    "verification and validation"
+  ]
+}

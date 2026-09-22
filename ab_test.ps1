@@ -24,8 +24,10 @@
 # at w/N = 0.8, so the ridge stays subcritical and the physics is unchanged.
 # Same three grids at every ab so the comparison is like for like.
 
+param([string[]]$Heights = @("10","40"))
+
 if (-not $env:MOLE_SRC) { Write-Error "set `$env:MOLE_SRC"; exit 1 }
-foreach ($ab in "10","40") {
+foreach ($ab in $Heights) {
   $Out = Join-Path (Get-Location) ("ab{0}-npz" -f $ab)
   if (-not (Test-Path $Out)) { New-Item -ItemType Directory -Path $Out | Out-Null }
   foreach ($g in @("512","201"), @("640","251"), @("896","351")) {
