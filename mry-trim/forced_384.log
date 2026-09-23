@@ -1,0 +1,49 @@
+﻿
+=== iwbcurv  omega/N=0.6  384x76  20 periods  Lx=3.0 km  D0=1000 m  k=2  alpha=1e-06  ramp=3T  FULLY CURVILINEAR ===
+  theory: nonhydrostatic 0.38 deg (Eq.30)   hydrostatic 0.38 deg (Eq.31)
+  N(z) from mry_N.txt: 1.00e-04 .. 2.50e-02 1/s over the water column
+  beam slope varies 0.0057 .. 0.0703 (5-95%); the angle above is the mid-depth value only
+  *** N < omega over 5% of the column: evanescent there, no propagating beam ***
+  window: auto [22793, 1350] m (bounce = 151954 m; keeps the fit inside the first bounce)
+  [00:00] grid from cache (grid_1a8fcd5db0b64893.npz)
+  [00:00] jacobian  : ALL +   |J| 6.189 .. 15.2
+  [00:00] grid angle: 9.5 - 170.2 deg  (90 = orthogonal)
+  [00:00] xi-line wander top-to-bottom: 73.8 m  -> FULLY CURVILINEAR
+  [00:00] r_x       : max 0.056  median 0.006  OK (<1)
+  [00:00] resolution: dx=7.8 m  dz=13.3 m  aspect 1.702
+  [00:00] lepticity : h_e=551 m  lambda=dx/h_e=0.0142  Gamma~0.0002  OK (<<1)
+  [00:00] beam      : slope 0.0066, bounce 151.95 km, 0.0 bounces across the domain
+  [00:00] operators from cache (ops_2433ddebb98853cb.npz)
+  [00:00] MOLE jacobian2D on the transposed grid: ALL +
+  [00:00] N(z) mapped to 29645 centres: N 1.00e-04 .. 1.53e-02 1/s
+  [00:00] buoyancy coupling: energy-adjoint Ic_z; row sums 1.000000..1.000000; max change vs MOLE 1.000e+00; adjointness error 5.1e-15
+  [00:00] bottom/top BC: w = (z_xi/x_xi) u   |slope| max 0.0044
+  [00:00] C: 766 bed rows, 2298 nnz; agrees with bc_residual loop to 1.08e-19
+  [00:00] D*G on the bed ghost rows: max|entry| 0.00e+00 (empty, as expected)
+  [00:00] constraint row equilibration: x5.96e-01 .. 7.20e-01 (cancels out of the solution; check with --bedeq unit)
+  [00:00] L: n=29645 nnz=608511 (20.5/row) bedmode=constraint, factorising ...
+python.exe : C:\Users\dap21\anaconda3\envs\mole\Lib\site-packages\cupy\_environment.py:286: UserWarning: CUDA path 
+could not be detected. Set CUDA_PATH environment variable if CuPy fails to load.
+At C:\Users\dap21\gccom-mole-experiments-2026\mry_trim.ps1:48 char:12
++     $out = & python iwbcurv.py --mole $env:MOLE_SRC @common @a 2>&1
++            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (C:\Users\dap21\... fails to load.:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  warnings.warn(
+No multithreading interface library was specified using the DirectSolverOptions. The performance of CPU operations 
+like planning will be significantly lower than if you provide a multithreading library.
+  [00:01] cudss factorise 0.8s  (GPU, FP64)
+  [00:01] static projection test: div 3.33e-11 OK   bed 6.13e-11 OK
+  [00:01] dt=74.53 s  (12000 steps, 600/period)  T=44720.2 s
+  [00:01] sponge: Lsl=450 m (0.15 Lx)  taus=1490.0 s  taus/T=0.0333  dt/taus=0.05 OK
+  [00:01] barotropic forcing: uniform transport, u_bc/u0 spans 10.00 .. 10.00 (depth 79.6 .. 85.6 m, clip 10)
+  [00:01] time loop on the GPU: fields and operators resident; 1288/8188 MiB in use
+  [00:01] stiffness : N_max*dt = 1.14 (N_max 1.53e-02, dt 74.5 s)  MARGINAL
+    [00:01 elapsed] time loop: 12000 steps
+    [00:04] consistency: div 6.89e-16  bed 2.19e-15   BOTH OK
+    [00:04] t/T=  4.0  max|u|=2.005e-01 at (x=    -201, z=  -83.0)  max|w|=2.668e-03
+
+  *** DIVERGED at t/T=6.80: max|u|=5.169e-01, 51.7x the forcing amplitude u0=0.01 ***
+  (no beam angle reported -- the field is not physical)
+

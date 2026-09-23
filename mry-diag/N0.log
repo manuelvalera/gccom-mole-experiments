@@ -1,0 +1,13 @@
+﻿python.exe : Traceback (most recent call last):
+At C:\Users\dap21\gccom-mole-experiments-2026\mry_diag.ps1:53 char:12
++     $out = & python iwbcurv.py --mole $env:MOLE_SRC @free @a 2>&1
++            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Traceback (most recent call last)::String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  File "C:\Users\dap21\gccom-mole-experiments-2026\iwbcurv.py", line 1379, in <module>
+    main()
+  File "C:\Users\dap21\gccom-mole-experiments-2026\iwbcurv.py", line 519, in main
+    _ratio = min(om / Nb, 0.999999)
+                 ~~~^~~~
+ZeroDivisionError: float division by zero

@@ -1,0 +1,84 @@
+﻿
+=== iwbcurv  omega/N=0.6  384x76  16 periods  Lx=10.1 km  D0=88 m  k=2  alpha=1e-06  ramp=3T  FULLY CURVILINEAR ===
+  theory: nonhydrostatic 1.71 deg (Eq.30)   hydrostatic 2.19 deg (Eq.31)
+  rotation: f = 8.7363e-05 1/s (f/omega = 0.62); the beam is 22% shallower than without it
+  N(z) from mry_N.txt: 1.00e-04 .. 1.53e-02 1/s over the water column
+  beam slope varies 0.0097 .. 0.0734 (5-95%); the angle above is the mid-depth value only
+  *** N < omega over 6% of the column: evanescent there, no propagating beam ***
+  window: auto [440, 2055] m (bounce = 2935 m; keeps the fit inside the first bounce)
+  [00:00] grid from cache (grid_4e3684c6fd876f0c.npz)
+  [00:00] jacobian  : ALL +   |J| 3.524 .. 53.32
+  [00:00] grid angle: 6.0 - 166.6 deg  (90 = orthogonal)
+  [00:00] xi-line wander top-to-bottom: 248.8 m  -> FULLY CURVILINEAR
+  [00:00] r_x       : max 13.080  median 0.024  *** VIOLATED (>1) ***
+  [00:00] resolution: dx=26.4 m  dz=1.2 m  aspect 0.044
+  [00:00] lepticity : h_e=48 m  lambda=dx/h_e=0.5453  Gamma~0.2974  *** MARGINAL ***
+  [00:00] beam      : slope 0.0299, bounce 2.94 km, 3.4 bounces across the domain
+  [00:00] --forcegrid: grid check FAILED, running anyway
+  [00:00] operators from cache (ops_d91f24bbd1cdf3ea.npz)
+  [00:00] MOLE jacobian2D on the transposed grid: ALL +
+  [00:00] N(z) mapped to 29645 centres: N 1.00e-04 .. 1.53e-02 1/s
+  [00:00] buoyancy coupling: energy-adjoint Ic_z; row sums 1.000000..1.000000; max change vs MOLE 1.000e+00; adjointness error 1.2e-15
+  [00:00] bottom/top BC: w = (z_xi/x_xi) u   |slope| max 0.0568
+  [00:00] C: 766 bed rows, 2298 nnz; agrees with bc_residual loop to 6.94e-18
+  [00:00] D*G on the bed ghost rows: max|entry| 0.00e+00 (empty, as expected)
+  [00:00] constraint row equilibration: x6.81e-02 .. 6.55e-01 (cancels out of the solution; check with --bedeq unit)
+  [00:00] L: n=29645 nnz=608495 (20.5/row) bedmode=constraint, factorising ...
+python.exe : C:\Users\dap21\anaconda3\envs\mole\Lib\site-packages\cupy\_environment.py:286: UserWarning: CUDA path 
+could not be detected. Set CUDA_PATH environment variable if CuPy fails to load.
+At C:\Users\dap21\gccom-mole-experiments-2026\mry_rotate.ps1:43 char:12
++     $out = & python iwbcurv.py --mole $env:MOLE_SRC @common @a 2>&1
++            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (C:\Users\dap21\... fails to load.:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  warnings.warn(
+No multithreading interface library was specified using the DirectSolverOptions. The performance of CPU operations 
+like planning will be significantly lower than if you provide a multithreading library.
+  [00:01] cudss factorise 0.8s  (GPU, FP64)
+  [00:01] static projection test: div 4.79e-10 OK   bed 6.01e-10 OK
+  [00:01] dt=74.53 s  (9600 steps, 600/period)  T=44720.2 s
+  [00:01] sponge: Lsl=3033 m (0.30 Lx)  taus=450.0 s  taus/T=0.0101  dt/taus=0.17 OK
+  [00:01] barotropic forcing: uniform transport, u_bc/u0 spans 1.00 .. 10.00 (depth 8.3 .. 87.8 m, clip 10)
+  [00:01] rotation: f*dt = 6.5115e-03 rad per step, advanced exactly
+  [00:01] probe box |x-0|<20000 m, within 500 m of the local bed: 29108 w-faces
+  [00:01] time loop on the GPU: fields and operators resident; 1288/8188 MiB in use
+  [00:01] stiffness : N_max*dt = 1.14 (N_max 1.53e-02, dt 74.5 s)  MARGINAL
+    [00:01 elapsed] time loop: 9600 steps
+    probe t/T=   1.0  rms|u|=7.0738e-04  rms|w|=1.0645e-05  box rms|w|=1.0645e-05  max|w|=1.596e-04
+    probe t/T=   2.0  rms|u|=2.9567e-03  rms|w|=4.2718e-05  box rms|w|=4.2718e-05  max|w|=6.156e-04
+    probe t/T=   3.0  rms|u|=4.6728e-03  rms|w|=6.6155e-05  box rms|w|=6.6155e-05  max|w|=9.190e-04
+    [00:03] consistency: div 9.93e-14  bed 4.74e-14   BOTH OK
+    [00:03] t/T=  3.2  max|u|=9.390e-02 at (x=    5055, z=   -8.3)  max|w|=3.084e-03
+    probe t/T=   4.0  rms|u|=4.7724e-03  rms|w|=6.7774e-05  box rms|w|=6.7774e-05  max|w|=9.080e-04
+    probe t/T=   5.0  rms|u|=4.6449e-03  rms|w|=6.7210e-05  box rms|w|=6.7210e-05  max|w|=8.983e-04
+    probe t/T=   6.0  rms|u|=4.5701e-03  rms|w|=6.6770e-05  box rms|w|=6.6770e-05  max|w|=8.958e-04
+    [00:06] consistency: div 6.80e-14  bed 3.33e-14   BOTH OK
+    [00:06] t/T=  6.4  max|u|=6.309e-02 at (x=    5042, z=   -4.0)  max|w|=2.019e-03
+    probe t/T=   7.0  rms|u|=4.5516e-03  rms|w|=6.6594e-05  box rms|w|=6.6594e-05  max|w|=8.951e-04
+    probe t/T=   8.0  rms|u|=4.5533e-03  rms|w|=6.6590e-05  box rms|w|=6.6590e-05  max|w|=8.953e-04
+    probe t/T=   9.0  rms|u|=4.5549e-03  rms|w|=6.6609e-05  box rms|w|=6.6609e-05  max|w|=8.955e-04
+    [00:08] consistency: div 1.86e-13  bed 5.65e-14   BOTH OK
+    [00:08] t/T=  9.6  max|u|=5.600e-02 at (x=    5055, z=   -8.3)  max|w|=1.834e-03
+    probe t/T=  10.0  rms|u|=4.5545e-03  rms|w|=6.6609e-05  box rms|w|=6.6609e-05  max|w|=8.955e-04
+    probe t/T=  11.0  rms|u|=4.5542e-03  rms|w|=6.6607e-05  box rms|w|=6.6607e-05  max|w|=8.955e-04
+    probe t/T=  12.0  rms|u|=4.5543e-03  rms|w|=6.6607e-05  box rms|w|=6.6607e-05  max|w|=8.955e-04
+    [00:12] consistency: div 2.13e-14  bed 9.85e-15   BOTH OK
+    [00:12] t/T= 12.8  max|u|=9.663e-02 at (x=    5047, z=   -1.7)  max|w|=3.151e-03
+    probe t/T=  13.0  rms|u|=4.5544e-03  rms|w|=6.6608e-05  box rms|w|=6.6608e-05  max|w|=8.955e-04
+    probe t/T=  14.0  rms|u|=4.5545e-03  rms|w|=6.6608e-05  box rms|w|=6.6608e-05  max|w|=8.955e-04
+    probe t/T=  15.0  rms|u|=4.5545e-03  rms|w|=6.6608e-05  box rms|w|=6.6608e-05  max|w|=8.955e-04
+    probe t/T=  16.0  rms|u|=4.5545e-03  rms|w|=6.6608e-05  box rms|w|=6.6608e-05  max|w|=8.955e-04
+    [00:15] consistency: div 3.79e-13  bed 1.90e-13   BOTH OK
+    [00:15] t/T= 16.0  max|u|=2.340e-02 at (x=    4233, z=  -25.3)  max|w|=8.955e-04
+  [00:15] time loop: 9600 steps in 14.8 s = 1.5 ms/step  (solver cudss: solve 0.6, everything else 0.9 ms/step)
+  GROWTH  box rms|w|    periods 9-16: rate -0.0000 per period  flat (neutral)
+  GROWTH  domain rms|w| periods 9-16: rate -0.0000 per period  flat (neutral)
+
+  fit over |x| in [440,2055] m, 145 points, rms residual 6.1 m
+  field: max/mean 23.9  (>>5 means a coherent beam; ~5 means reflections dominate)
+  BEAM ANGLE  measured 0.04   nonhydrostatic 1.71   hydrostatic 2.19   error -1.67 deg (-97.5%)
+  saved mry-rot\rot_384.npz
+
+  total wall time 00:16
+

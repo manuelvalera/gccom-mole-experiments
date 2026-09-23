@@ -1,0 +1,61 @@
+﻿
+=== iwbcurv  omega/N=0.6  1152x226  10 periods  Lx=10.1 km  D0=88 m  k=2  alpha=1e-06  ramp=3T  FULLY CURVILINEAR ===
+  theory: nonhydrostatic 2.19 deg (Eq.30)   hydrostatic 2.19 deg (Eq.31)
+  N(z) from mry_N.txt: 1.00e-04 .. 1.53e-02 1/s over the water column
+  beam slope varies 0.0097 .. 0.0734 (5-95%); the angle above is the mid-depth value only
+  *** N < omega over 6% of the column: evanescent there, no propagating beam ***
+  window: auto [345, 1609] m (bounce = 2299 m; keeps the fit inside the first bounce)
+  [00:00] generating grid (TFI, position-dependent beta) ...
+  [13:24] jacobian  : ALL +   |J| 0.391 .. 5.936
+  [13:24] grid angle: 5.9 - 166.6 deg  (90 = orthogonal)
+  [13:24] xi-line wander top-to-bottom: 248.8 m  -> FULLY CURVILINEAR
+  [13:24] r_x       : max 13.982  median 0.024  *** VIOLATED (>1) ***
+  [13:24] resolution: dx=8.8 m  dz=0.4 m  aspect 0.044
+  [13:24] lepticity : h_e=48 m  lambda=dx/h_e=0.1815  Gamma~0.0329  OK (<<1)
+  [13:24] beam      : slope 0.0382, bounce 2.30 km, 4.4 bounces across the domain
+  [13:24] --forcegrid: grid check FAILED, running anyway
+  [13:28] MOLE jacobian2D on the transposed grid: ALL +
+  [13:28] N(z) mapped to 261731 centres: N 1.00e-04 .. 1.53e-02 1/s
+  [13:28] buoyancy coupling: energy-adjoint Ic_z; row sums 1.000000..1.000000; max change vs MOLE 1.000e+00; adjointness error 3.3e-14
+  [13:28] bottom/top BC: w = (z_xi/x_xi) u   |slope| max 0.0570
+  [13:28] C: 2302 bed rows, 6906 nnz; agrees with bc_residual loop to 1.11e-16
+  [13:28] D*G on the bed ghost rows: max|entry| 0.00e+00 (empty, as expected)
+  [13:28] constraint row equilibration: x1.90e-01 .. 1.95e+00 (cancels out of the solution; check with --bedeq unit)
+  [13:28] L: n=261731 nnz=5454073 (20.8/row) bedmode=constraint, factorising ...
+python.exe : C:\Users\dap21\anaconda3\envs\mole\Lib\site-packages\cupy\_environment.py:286: UserWarning: CUDA path 
+could not be detected. Set CUDA_PATH environment variable if CuPy fails to load.
+At C:\Users\dap21\gccom-mole-experiments-2026\mry_run.ps1:48 char:12
++     $out = & python iwbcurv.py --mole $env:MOLE_SRC @common @a --out  ...
++            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (C:\Users\dap21\... fails to load.:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  warnings.warn(
+No multithreading interface library was specified using the DirectSolverOptions. The performance of CPU operations 
+like planning will be significantly lower than if you provide a multithreading library.
+  [13:31] cudss factorise 2.4s  (GPU, FP64)
+  [13:31] static projection test: div 1.12e-10 OK   bed 1.91e-10 OK
+  [13:31] dt=74.53 s  (6000 steps, 600/period)  T=44720.2 s
+  [13:31] sponge: Lsl=1516 m (0.15 Lx)  taus=1490.0 s  taus/T=0.0333  dt/taus=0.05 OK
+  [13:31] time loop on the GPU: fields and operators resident; 2180/8188 MiB in use
+  [13:31] stiffness : N_max*dt = 1.14 (N_max 1.53e-02, dt 74.5 s)  MARGINAL
+    [13:31 elapsed] time loop: 6000 steps
+    [13:37] consistency: div 1.03e-10  bed 2.99e-11   BOTH OK
+    [13:37] t/T=  2.0  max|u|=6.690e-03  max|w|=1.601e-04
+    [13:42] consistency: div 4.22e-11  bed 1.28e-11   BOTH OK
+    [13:42] t/T=  4.0  max|u|=2.101e-02  max|w|=4.898e-04
+    [13:48] consistency: div 3.52e-11  bed 9.02e-12   BOTH OK
+    [13:48] t/T=  6.0  max|u|=2.937e-02  max|w|=1.169e-03
+    [13:54] consistency: div 4.11e-11  bed 4.92e-12   BOTH OK
+    [13:54] t/T=  8.0  max|u|=5.865e-02  max|w|=3.044e-03
+    [14:00] consistency: div 4.74e-11  bed 3.29e-12   BOTH OK
+    [14:00] t/T= 10.0  max|u|=7.888e-02  max|w|=4.025e-03
+  [14:00] time loop: 6000 steps in 28.9 s = 4.8 ms/step  (solver cudss: solve 4.0, everything else 0.8 ms/step)
+
+  fit over |x| in [345,1609] m, 344 points, rms residual 19.8 m
+  field: max/mean 20.0  (>>5 means a coherent beam; ~5 means reflections dominate)
+  BEAM ANGLE  measured 0.13   nonhydrostatic 2.19   hydrostatic 2.19   error -2.05 deg (-93.9%)
+  saved mry-npz\mry_10p_fine.npz
+
+  total wall time 14:00
+

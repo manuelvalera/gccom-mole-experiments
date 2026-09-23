@@ -231,7 +231,7 @@ def _growth_report(hist):
         return
     h = np.array(hist)
     k = len(h) // 2
-    for col, name in ((3, 'ridge ||w||'), (2, 'domain ||w||')):
+    for col, name in ((3, 'box rms|w|'), (2, 'domain rms|w|')):
         sl = np.polyfit(h[k:, 0], np.log(h[k:, col]), 1)[0]
         ef = (1.0/sl) if sl != 0 else np.inf
         verdict = (f"e-folding {ef:.1f} periods  -> UNSTABLE" if sl > 1e-4 else
@@ -444,10 +444,61 @@ def main():
                          'physical-area inner product, so the w<->b exchange conserves\n'
                          'discrete energy on non-uniform cells. Ablation: with --N 0 the\n'
                          'topographic instability vanishes, so it lives in this coupling.')
+    ap.add_argument('--btmode', default='uniform', choices=['uniform', 'transport'],
+                    help='barotropic forcing. uniform imposes the same velocity\n'
+                         'everywhere, which is right only where the depth is nearly\n'
+                         'constant. transport imposes a uniform DEPTH-INTEGRATED flow,\n'
+                         'u_bc(x) = u0 * D_ref / D(x), which is what conserves mass over\n'
+                         'varying bathymetry -- on the Monterey transect the depth runs\n'
+                         '88 m to 8 m, so the two differ by an order of magnitude.')
+    ap.add_argument('--btclip', type=float, default=10.0,
+                    help='cap on D_ref/D(x) for --btmode transport, so a vanishingly\n'
+                         'shallow edge cannot demand an unbounded velocity.')
+    ap.add_argument('--ulim', type=float, default=50.0,
+                    help='stop when max|u| exceeds this multiple of the forcing '
+                         'amplitude (or of the initial field, for a free run). '
+                         'Raise it to watch growth develop past the cutoff, which '
+                         'is how linear accumulation is told from exponential '
+                         'instability.')
+    ap.add_argument('--frames', default=None,
+                    help='directory to write instantaneous snapshots to, for '
+                         'animation. The grid is written once as grid.npz and each '
+                         'frame as frame_NNNNN.npz in float32. Render with animate.py.')
+    ap.add_argument('--framerate', type=float, default=12.0,
+                    help='snapshots per forcing period (default 12).')
+    ap.add_argument('--framefrom', type=float, default=0.0,
+                    help='start saving at this many periods. The default of 0 starts '
+                         'at the very beginning, which is what shows the beams forming.')
+    ap.add_argument('--probebox', type=float, nargs=3, default=None,
+                    metavar=('XC', 'HALFWIDTH', 'HEIGHT'),
+                    help='region the probe measures, as centre x, half-width, and\n'
+                         'height above the deepest point (metres). Default is the\n'
+                         'benchmark box: 0, 150, 150.')
     ap.add_argument('--probe', action='store_true',
                     help='log ||u||, ||w|| every period and fit the growth rate of '
                          '||w|| over the second half of the run (e-folding time in '
                          'periods; positive = growing).')
+    ap.add_argument('--lat', type=float, default=None,
+                    help='latitude in degrees; sets the Coriolis parameter '
+                         'f = 2 Omega sin(lat). At Monterey (36.8 N) f/omega_M2 '
+                         'is 0.62 and the beam slope is 22 percent shallower than '
+                         'without rotation, so this is not optional there.')
+    ap.add_argument('--fcor', type=float, default=None,
+                    help='Coriolis parameter directly, in 1/s; overrides --lat.')
+    ap.add_argument('--nprofile', default=None,
+                    help='two-column file (z in m, negative down; N in 1/s) giving the\n'
+                         'stratification, e.g. mry_N.txt from mry_setup.py. Overrides\n'
+                         '--N. With a profile the beam slope varies with depth, so the\n'
+                         'reported theory angle is the value at mid-depth and the range\n'
+                         'over the water column is printed with it.')
+    ap.add_argument('--omega', type=float, default=None,
+                    help='forcing frequency in rad/s, e.g. 1.405e-4 for M2. Default is\n'
+                         '--ratio times the reference N, which is what the Garcia\n'
+                         'benchmark uses.')
+    ap.add_argument('--gridname', default='iwbridge',
+                    help='sub-directory of --grids holding the boundary curves.\n'
+                         'iwbridge is the Garcia benchmark ridge; mryshelf is the\n'
+                         'Monterey transect written by mry_setup.py.')
     ap.add_argument('--device', default='cpu', choices=['cpu', 'gpu'],
                     help='where the time loop runs. gpu keeps every field and operator on\n'
                          'the GPU (CuPy) and solves with cuDSS on device arrays, so nothing\n'
@@ -481,23 +532,67 @@ def main():
     # gridGen resolves the boundary curves from the working directory, so the
     # geometry is handed to them through a generated geom_over.m rather than
     # by editing four .m files.
-    with open(os.path.join(g.grids, 'iwbridge', 'geom_over.m'), 'w') as fh:
+    with open(os.path.join(g.grids, g.gridname, 'geom_over.m'), 'w') as fh:
         fh.write("function [Lx, D0, ab, Lb] = geom_over()\n"
                  f"    Lx = {LX}; D0 = {D0}; ab = {g.ab}; Lb = {g.lb};\nend\n")
 
     # --N 0 removes stratification entirely.  The forcing frequency still
     # needs a reference N to stay fixed, so omega is set from the default.
+    fcor = 0.0
+    if g.fcor is not None:
+        fcor = g.fcor
+    elif g.lat is not None:
+        fcor = 2 * 7.292115e-5 * np.sin(np.radians(g.lat))
     Nb = g.N
-    om = g.ratio * NBV
+    ztab = Ntab = None
+    if g.nprofile:
+        _p = np.loadtxt(g.nprofile)
+        ztab, Ntab = _p[:, 0], _p[:, 1]
+        order = np.argsort(ztab)
+        ztab, Ntab = ztab[order], Ntab[order]
+        Nb = float(np.interp(-0.5 * D0, ztab, Ntab))       # mid-depth reference
+    om = g.omega if g.omega else g.ratio * NBV
     T = 2 * np.pi / om
-    phi_nh = np.degrees(np.arctan(np.sqrt(g.ratio**2 / (1 - g.ratio**2))))
-    phi_h = np.degrees(np.arctan(g.ratio))
+    _ratio = min(om / Nb, 0.999999) if Nb > 0 else g.ratio
+    phi_nh = np.degrees(np.arctan(np.sqrt(_ratio**2 / (1 - _ratio**2))))
+    phi_h = np.degrees(np.arctan(_ratio))
     print(f"\n=== iwbcurv  omega/N={g.ratio}  {g.nx}x{g.nz}  {g.nper} periods  "
           f"Lx={LX/1000:.1f} km  D0={D0:.0f} m  k={g.order}  alpha={g.alpha:.0e}  "
           f"ramp={g.ramp:g}T  "
           f"FULLY CURVILINEAR ===")
+    if fcor:
+        # with rotation the slope is sqrt((om^2 - f^2)/(N^2 - om^2)): waves exist
+        # only for f < om < N, and the beam is shallower than the non-rotating
+        # value by a factor sqrt(1 - f^2/om^2)
+        if om <= abs(fcor):
+            print(f"\n  *** omega {om:.3e} <= f {abs(fcor):.3e}: no propagating "
+                  f"internal waves at this frequency ***\n")
+            return
+        _sl_rot = np.sqrt((om**2 - fcor**2) / max(Nb**2 - om**2, 1e-30))
+        phi_nh = np.degrees(np.arctan(_sl_rot))
     print(f"  theory: nonhydrostatic {phi_nh:.2f} deg (Eq.30)   "
           f"hydrostatic {phi_h:.2f} deg (Eq.31)")
+    if fcor:
+        print(f"  rotation: f = {fcor:.4e} 1/s (f/omega = {abs(fcor)/om:.2f}); "
+              f"the beam is {100*(1 - np.sqrt(1 - (fcor/om)**2)):.0f}% shallower "
+              f"than without it")
+    if ztab is not None:
+        _sel = (ztab >= -D0) & (ztab <= 0)
+        _Nw = Ntab[_sel] if _sel.any() else Ntab
+        print(f"  N(z) from {g.nprofile}: {_Nw.min():.2e} .. {_Nw.max():.2e} 1/s over the "
+              f"water column")
+        # Internal waves only propagate where N > omega; elsewhere they are
+        # evanescent and have no beam slope at all, so those depths are
+        # reported separately rather than folded into a meaningless range.
+        _prop = _Nw > om
+        if _prop.any():
+            _sl = np.sqrt(om**2 / (_Nw[_prop]**2 - om**2))
+            print(f"  beam slope varies {np.percentile(_sl, 5):.4f} .. "
+                  f"{np.percentile(_sl, 95):.4f} (5-95%); the angle above is the "
+                  f"mid-depth value only")
+        if not _prop.all():
+            print(f"  *** N < omega over {100*np.mean(~_prop):.0f}% of the column: "
+                  f"evanescent there, no propagating beam ***")
 
     # Fit window.  The column-max tracker follows the brightest feature, so it
     # must see the PRIMARY beam only.  Past the first bounce the field is the
@@ -542,8 +637,8 @@ def main():
             return
     use_cache = not g.no_cache
     if use_cache:
-        _code = _tree_hash([g.mole, os.path.join(g.grids, 'iwbridge')])
-        gkey = _key(dict(nx=g.nx, nz=g.nz, Lx=LX, D0=D0, ab=g.ab, lb=g.lb,
+        _code = _tree_hash([g.mole, os.path.join(g.grids, g.gridname)])
+        gkey = _key(dict(name=g.gridname, nx=g.nx, nz=g.nz, Lx=LX, D0=D0, ab=g.ab, lb=g.lb,
                          bt=g.bt, bb=g.bb, bulge=g.bulge, code=_code))
         gpath = os.path.join(g.cache, f"grid_{gkey}.npz")
     oc = None
@@ -551,8 +646,11 @@ def main():
     def _octave():
         from oct2py import Oct2Py       # imported here so this module can be
         o = Oct2Py()                    # imported without Octave, for tests
-        o.addpath(g.mole)
-        o.addpath(os.path.join(g.grids, 'iwbridge'))
+        # absolute: Octave stores a relative path entry as given and re-resolves
+        # it against the current directory, so a later cd into grids/ would
+        # silently unhook the boundary curves
+        o.addpath(os.path.abspath(g.mole))
+        o.addpath(os.path.abspath(os.path.join(g.grids, g.gridname)))
         return o
 
     if use_cache and os.path.isfile(gpath):
@@ -568,7 +666,7 @@ def main():
         try:
             oc.eval(f"global BT BB BULGE; BT={g.bt}; BB={g.bb}; BULGE={g.bulge};")
             oc.eval(f"cd('{g.grids.replace(os.sep,'/')}'); "
-                    f"[X,Z]=gridGen('TFI','iwbridge',{g.nx},{g.nz},false);")
+                    f"[X,Z]=gridGen('TFI','{g.gridname}',{g.nx},{g.nz},false);")
         finally:
             os.chdir(here)
         X = oc.pull('X')
@@ -639,7 +737,9 @@ def main():
     xw = Xf.ravel()
     zw = Zf.ravel()
     Xu = 0.5 * (XM[:-1, :] + XM[1:, :])
+    Zu = 0.5 * (ZM[:-1, :] + ZM[1:, :])
     xu = Xu.ravel()
+    zu = Zu.ravel()
     assert xu.size == nu_ and xw.size == nw_, "face coordinate ordering mismatch"
 
     Lsl = g.lsl * LX
@@ -670,6 +770,20 @@ def main():
     # face feels the buoyancy of the cell above it, and the w<->b exchange
     # conserves discrete energy exactly.
     # ------------------------------------------------------------------
+    # Stratification at cell centres.  A scalar N is a number; a profile becomes
+    # a vector over the same centres the buoyancy lives on, so the update below
+    # is elementwise either way.
+    N2c = Nb**2
+    if ztab is not None:
+        _zc = np.zeros((n + 2, m + 2))
+        _zc[1:-1, 1:-1] = 0.25*(ZM[:-1, :-1] + ZM[1:, :-1] + ZM[:-1, 1:] + ZM[1:, 1:])
+        _zc[0, :] = _zc[1, :]
+        _zc[-1, :] = _zc[-2, :]
+        _zc[:, 0] = _zc[:, 1]
+        _zc[:, -1] = _zc[:, -2]
+        N2c = np.interp(_zc.ravel(), ztab, Ntab)**2
+        print(f"  [{el()}] N(z) mapped to {N2c.size} centres: "
+              f"N {np.sqrt(N2c).min():.2e} .. {np.sqrt(N2c).max():.2e} 1/s")
     Rfused = None
     Ic_zb = Ic_z
     if g.buoy == 'energy':
@@ -934,13 +1048,20 @@ def main():
     # ------------------------------------------------------------------
     if g.seiche:
         I_, J_ = g.seiche
+        if ztab is not None:
+            print("\n  *** --seiche assumes a constant N; drop --nprofile ***\n")
+            return
         if abs(g.ab) > 1e-12 or abs(g.bulge) > 1e-12:
             print("\n  *** --seiche needs a rectangular domain: "
                   "--ab 0 --bulge 0 ***\n")
             return
         Zu = 0.5 * (ZM[:-1, :] + ZM[1:, :])
         kx, pz = I_ * np.pi / LX, J_ * np.pi / D0
-        om_ex = Nb * kx / np.hypot(kx, pz)
+        # rotating dispersion relation for a rectangular box mode:
+        #   omega^2 = (N^2 kx^2 + f^2 pz^2) / (kx^2 + pz^2)
+        # which reduces to the non-rotating form when f = 0 and gives an exact
+        # test of the Coriolis terms.
+        om_ex = np.sqrt((Nb**2 * kx**2 + fcor**2 * pz**2) / (kx**2 + pz**2))
         T_ex = 2 * np.pi / om_ex
         dt = T_ex / g.spp
         nt = int(g.nper * T_ex / dt)
@@ -954,6 +1075,9 @@ def main():
         u = -(pz / kx) * np.sin(kx * xp_u) * np.cos(pz * zp_u)
         w = np.cos(kx * xp_w) * np.sin(pz * zp_w)
         wref = w.copy()
+        v2 = np.zeros(nu_)
+        _cf2 = np.cos(fcor * dt)
+        _sf2 = np.sin(fcor * dt)
         b = np.zeros(nc)
         gp = np.zeros(nu_ + nw_)
 
@@ -973,6 +1097,13 @@ def main():
         a_t = np.empty(nt + 1)
         a_t[0] = (wref @ w) / nrm
         for it in range(1, nt + 1):
+            if fcor:
+                # rotate BEFORE forming the predictor: us is built from u, and u
+                # is then overwritten by the projection, so a rotation applied
+                # after this line is simply discarded
+                _ur = u * _cf2 + v2 * _sf2
+                v2 = -u * _sf2 + v2 * _cf2
+                u = _ur
             us = u - dt * gp[:nu_]
             ws = w - dt * gp[nu_:] + dt * (Ic_zb @ b)
             usw = np.concatenate([us, ws])
@@ -983,7 +1114,7 @@ def main():
             u = us - dt * gph[:nu_]
             w = ws - dt * gph[nu_:]
             gp = gp + gph
-            b = b - dt * Nb**2 * (Idf_w @ w)
+            b = b - dt * N2c * (Idf_w @ w)
             a_t[it] = (wref @ w) / nrm
             if not np.isfinite(a_t[it]) or abs(a_t[it]) > 1e3:
                 print(f"\n  *** seiche DIVERGED at step {it} ***\n")
@@ -1047,8 +1178,7 @@ def main():
     # because a blow-up has a huge peak-to-mean ratio by construction.  The
     # forcing amplitude u0 is the natural yardstick -- a linear internal tide
     # driven at u0 cannot legitimately exceed a few times u0.
-    _ref = max(g.u0, g.noise)
-    ulim = 50.0 * _ref if _ref > 0 else np.inf
+    ulim = np.inf          # set once the initial field exists, below
     # ------------------------------------------------------------------
     # Consistency check.  After the projection the velocity must satisfy BOTH
     #   (a) div(u) = 0                          -- the projection's job
@@ -1081,6 +1211,45 @@ def main():
         w -= _gph[nu_:]
         print(f"  [{el()}] random initial field, amplitude {g.noise:g}, projected: "
               f"||u|| {np.linalg.norm(u):.3e}  ||w|| {np.linalg.norm(w):.3e}")
+    # Blow-up threshold. For a forced run the forcing amplitude is the natural
+    # scale; for a free run it is the initial field, because projecting random
+    # noise onto a high-aspect grid gives velocities far above the noise
+    # amplitude itself and a threshold of 50x that would fire at once.
+    _u0max = float(np.abs(u).max()) if g.noise > 0 else 0.0
+    _ref = max(g.u0, _u0max)
+    ulim = g.ulim * _ref if _ref > 0 else np.inf
+    if g.noise > 0:
+        print(f"  [{el()}] blow-up threshold {ulim:.2e} = 50x the initial max|u| "
+              f"{_u0max:.2e}")
+    # Shape of the barotropic forcing across the domain.
+    _btshape = 1.0
+    if g.btmode == 'transport':
+        _br2 = 0 if ZM[0, :].mean() < ZM[-1, :].mean() else -1
+        _o2 = np.argsort(XM[_br2, :])
+        _dep = -np.interp(xu, XM[_br2, :][_o2], ZM[_br2, :][_o2])
+        _btshape = np.clip(D0 / np.maximum(_dep, 1e-6), 0.0, g.btclip)
+        print(f"  [{el()}] barotropic forcing: uniform transport, "
+              f"u_bc/u0 spans {_btshape.min():.2f} .. {_btshape.max():.2f} "
+              f"(depth {_dep.min():.1f} .. {_dep.max():.1f} m, clip {g.btclip:g})")
+    # Coriolis. v is carried at the u-faces, so the (u, v) coupling is local and
+    # needs no interpolation, and the pair is advanced by an exact rotation
+    # through f*dt: unconditionally stable and conserving u^2 + v^2 identically.
+    # v takes no part in the pressure projection -- with no variation along y it
+    # is not in the continuity equation.
+    v = np.zeros(nu_)
+    _cf = np.cos(fcor * dt)
+    _sf = np.sin(fcor * dt)
+    if fcor:
+        print(f"  [{el()}] rotation: f*dt = {fcor*dt:.4e} rad per step, "
+              f"advanced exactly")
+    _fr_every = max(int(round(g.spp / max(g.framerate, 1e-9))), 1) if g.frames else 0
+    _fr_n = 0
+    if g.frames:
+        os.makedirs(g.frames, exist_ok=True)
+        np.savez_compressed(os.path.join(g.frames, 'grid.npz'),
+                            X=XM, Z=ZM, T=T, om=om, ratio=g.ratio, D0=D0, Lx=LX)
+        print(f"  [{el()}] frames -> {g.frames}, every {_fr_every} steps "
+              f"({g.framerate:g} per period) from t/T = {g.framefrom:g}")
     _hist = []
     if g.probe:
         # The unstable mode is seeded at the ridge crest; a whole-domain norm is
@@ -1088,8 +1257,31 @@ def main():
         # periods. Measure a box around the ridge as well.
         _xw = (0.5 * (XM[:, :-1] + XM[:, 1:])).ravel()
         _zw = (0.5 * (ZM[:, :-1] + ZM[:, 1:])).ravel()
-        _box = (np.abs(_xw) < 150.0) & (_zw < -D0 + 150.0)
-        print(f"  [{el()}] probe box |x|<150 m, bottom 150 m: {int(_box.sum())} w-faces")
+        _xc, _hw, _ht = g.probebox if g.probebox else (0.0, 150.0, 150.0)
+        # Height is measured from the LOCAL bed. Over sloping bathymetry a box
+        # defined from the deepest point of the domain can sit entirely below
+        # the seabed where the water is shallow, and then it samples somewhere
+        # else entirely.
+        _br = 0 if ZM[0, :].mean() < ZM[-1, :].mean() else -1
+        _o = np.argsort(XM[_br, :])
+        _bed = np.interp(_xw, XM[_br, :][_o], ZM[_br, :][_o])
+        _box = (np.abs(_xw - _xc) < _hw) & (_zw < _bed + _ht)
+        print(f"  [{el()}] probe box |x-{_xc:.0f}|<{_hw:.0f} m, within {_ht:.0f} m "
+              f"of the local bed: {int(_box.sum())} w-faces")
+        # Area weights, so the reported norm is an rms over the WATER rather
+        # than a sum over cells. An unweighted norm grows as sqrt(cell count)
+        # for the same physical field, which makes grids incomparable.
+        _Aw = 0.5 * np.abs((XM[:-1, 1:] - XM[:-1, :-1]) * (ZM[1:, :-1] - ZM[:-1, :-1])
+                           - (XM[1:, :-1] - XM[:-1, :-1]) * (ZM[:-1, 1:] - ZM[:-1, :-1])) \
+              + 0.5 * np.abs((XM[1:, 1:] - XM[1:, :-1]) * (ZM[1:, 1:] - ZM[:-1, 1:])
+                             - (XM[1:, 1:] - XM[:-1, 1:]) * (ZM[1:, 1:] - ZM[1:, :-1]))
+        _Wf = np.zeros((n + 1, m))
+        _Wf[1:-1, :] = 0.5 * (_Aw[:-1, :] + _Aw[1:, :])
+        _Wf[0, :] = 0.5 * _Aw[0, :]
+        _Wf[-1, :] = 0.5 * _Aw[-1, :]
+        _Wf = _Wf.ravel()
+        _Wsum = float(_Wf.sum())
+        _Wbox = float(_Wf[_box].sum()) if _box.any() else _Wsum
     # ------------------------------------------------------------------
     # Device selection. The loop below is written once against `xp` (numpy or
     # cupy) and the underscore-named operators; on the CPU these are the very
@@ -1102,6 +1294,7 @@ def main():
     _R = Rfused if Rfused is not None else D
     _slu, _slw = slu, slw
     _boxd = _box if g.probe else None
+    _Wfd = _Wf if g.probe else None
     _h = lambda a: a
     if g.device == 'gpu':
         import cupy as cp
@@ -1109,14 +1302,35 @@ def main():
         xp = cp
         _toG = lambda M: csp.csr_matrix(sp.csr_matrix(M, dtype=np.float64))
         _Iz, _G, _Iw, _Iu, _R = [_toG(M) for M in (_Iz, _G, _Iw, _Iu, _R)]
-        u, w, b, gp, acc = [cp.asarray(a) for a in (u, w, b, gp, acc)]
+        u, w, b, gp, acc, v = [cp.asarray(a) for a in (u, w, b, gp, acc, v)]
         _slu, _slw = cp.asarray(slu), cp.asarray(slw)
+        if not np.isscalar(_btshape):
+            _btshape = cp.asarray(_btshape)
+        if not np.isscalar(N2c):
+            N2c = cp.asarray(N2c)
         if g.probe:
             _boxd = cp.asarray(_box)
+            _Wfd = cp.asarray(_Wf)
         _h = cp.asnumpy
         _free, _tot = cp.cuda.runtime.memGetInfo()
         print(f"  [{el()}] time loop on the GPU: fields and operators resident; "
               f"{(_tot-_free)/2**20:.0f}/{_tot/2**20:.0f} MiB in use")
+    # The buoyancy oscillation must be resolved in time: w and b exchange at
+    # the local N, and the scheme is stable only for N*dt of order 1. The
+    # benchmark never came close (omega ~ N there, so N*dt = 0.065), but a
+    # tidal frequency against real stratification is ~100x stiffer, and the
+    # symptom is an immediate blow-up rather than a gentle loss of accuracy.
+    _Nmax = float(np.sqrt(np.max(N2c)))
+    _Ndt = _Nmax * dt
+    print(f"  [{el()}] stiffness : N_max*dt = {_Ndt:.2f} "
+          f"(N_max {_Nmax:.2e}, dt {dt:.1f} s)  "
+          f"{'OK (<1)' if _Ndt < 1 else ('MARGINAL' if _Ndt < 1.5 else '*** UNSTABLE ***')}")
+    if _Ndt >= 1.5 and not g.forcegrid:
+        _need = int(np.ceil(T * _Nmax / 1.0 / 1.0))
+        print(f"\n  *** N_max*dt = {_Ndt:.2f}: the buoyancy update is unstable.\n"
+              f"      Use --spp {max(_need, g.spp * 2)} or more (N_max*dt < 1), or\n"
+              f"      --forcegrid to run anyway. ***\n")
+        return
     _tsolve = 0.0
     t0 = time.time()
     beat(f"time loop: {nt} steps", force=True)
@@ -1129,7 +1343,12 @@ def main():
         # removes most of that kick. --ramp 0 reproduces the old behaviour.
         _rt = g.ramp * T
         _rf = 1.0 if (_rt <= 0 or t >= _rt) else 0.5 * (1.0 - np.cos(np.pi * t / _rt))
-        ubc = g.u0 * _rf * np.sin(om * t)
+        ubc = g.u0 * _rf * np.sin(om * t) * _btshape
+        if fcor:
+            _ur = u * _cf + v * _sf
+            v = -u * _sf + v * _cf
+            u = _ur
+            v = v - dt * v / g.taus * _slu          # the sponge damps v too
         us = u - dt * gp[:nu_] - dt * (u - ubc) / g.taus * _slu
         ws = w - dt * gp[nu_:] + dt * (_Iz @ b) - dt * w / g.taus * _slw
         usw = xp.concatenate([us, ws])
@@ -1149,13 +1368,21 @@ def main():
             w = apply_bed(u, w)
         gp = gp + gphi
         wc = _Iw @ w
-        b = b - dt * Nb**2 * wc
+        b = b - dt * N2c * wc
+        if _fr_every and it % _fr_every == 0 and t / T >= g.framefrom:
+            _uc = _h(_Iu @ u).astype(np.float32)
+            _wcf = _h(wc).astype(np.float32)
+            np.savez_compressed(os.path.join(g.frames, f"frame_{_fr_n:05d}.npz"),
+                                u=_uc, w=_wcf, t=np.float32(t), tT=np.float32(t / T))
+            _fr_n += 1
         if g.probe and it % g.spp == 0:
-            _nu, _nw = float(xp.linalg.norm(u)), float(xp.linalg.norm(w))
-            _nb = float(xp.linalg.norm(w[_boxd])) if _box.any() else _nw
+            _nu = float(xp.linalg.norm(u)) / np.sqrt(nu_)      # plain rms over faces
+            _nw = float(xp.sqrt((_Wfd * w**2).sum() / _Wsum))    # area-weighted rms
+            _nb = (float(xp.sqrt((_Wfd[_boxd] * w[_boxd]**2).sum() / _Wbox))
+                   if _box.any() else _nw)
             _hist.append((t / T, _nu, _nw, _nb))
-            print(f"    probe t/T={t/T:6.1f}  ||u||={_nu:.4e}  ||w||={_nw:.4e}  "
-                  f"ridge ||w||={_nb:.4e}  max|w|={float(xp.abs(w).max()):.3e}", flush=True)
+            print(f"    probe t/T={t/T:6.1f}  rms|u|={_nu:.4e}  rms|w|={_nw:.4e}  "
+                  f"box rms|w|={_nb:.4e}  max|w|={float(xp.abs(w).max()):.3e}", flush=True)
         if it % max(1, nt // 5) == 0:
             rd, rb = bc_residual(_h(u), _h(w))
             if rd < 1e-8 and rb < 1e-8:
@@ -1203,11 +1430,18 @@ def main():
                 acc += uc_**2 + wc**2
             else:                                   # 'ubc'
                 uc_ = _Iu @ u
-                U2 = uc_.reshape(m+2, n+2)
-                acc += (U2 - U2.mean(axis=1, keepdims=True)).ravel()**2 + wc**2
+                # x is the fastest index, so the array is (n+2, m+2) and the
+                # depth mean is over axis 0. It read (m+2, n+2) with axis=1,
+                # which averaged across the wrong direction.
+                U2 = uc_.reshape(n+2, m+2)
+                acc += (U2 - U2.mean(axis=0, keepdims=True)).ravel()**2 + wc**2
             nacc += 1
         if it % max(1, nt // 5) == 0:
-            print(f"    [{el()}] t/T={t/T:5.1f}  max|u|={float(xp.abs(u).max()):.3e}  "
+            # A norm cannot distinguish a growing mode from a single runaway
+            # cell, so report where the maximum sits as well as its size.
+            _iu = int(xp.argmax(xp.abs(u)))
+            print(f"    [{el()}] t/T={t/T:5.1f}  max|u|={float(xp.abs(u).max()):.3e} "
+                  f"at (x={xu[_iu]:8.0f}, z={zu[_iu]:7.1f})  "
                   f"max|w|={float(xp.abs(w).max()):.3e}", flush=True)
             _LAST[0] = time.time()
 

@@ -1,0 +1,63 @@
+﻿
+=== iwbcurv  omega/N=0.6  1152x226  20 periods  Lx=10.1 km  D0=88 m  k=2  alpha=1e-06  ramp=0T  FULLY CURVILINEAR ===
+  theory: nonhydrostatic 2.19 deg (Eq.30)   hydrostatic 2.19 deg (Eq.31)
+  N(z) from mry_N.txt: 1.00e-04 .. 1.53e-02 1/s over the water column
+  beam slope varies 0.0097 .. 0.0734 (5-95%); the angle above is the mid-depth value only
+  *** N < omega over 6% of the column: evanescent there, no propagating beam ***
+  window: auto [345, 1609] m (bounce = 2299 m; keeps the fit inside the first bounce)
+  [00:00] grid from cache (grid_c688bd0e6fa6715a.npz)
+  [00:00] jacobian  : ALL +   |J| 0.391 .. 5.936
+  [00:00] grid angle: 5.9 - 166.6 deg  (90 = orthogonal)
+  [00:00] xi-line wander top-to-bottom: 248.8 m  -> FULLY CURVILINEAR
+  [00:00] r_x       : max 13.982  median 0.024  *** VIOLATED (>1) ***
+  [00:00] resolution: dx=8.8 m  dz=0.4 m  aspect 0.044
+  [00:00] lepticity : h_e=48 m  lambda=dx/h_e=0.1815  Gamma~0.0329  OK (<<1)
+  [00:00] beam      : slope 0.0382, bounce 2.30 km, 4.4 bounces across the domain
+  [00:00] --forcegrid: grid check FAILED, running anyway
+  [00:00] operators from cache (ops_49715a2f081ee9e4.npz)
+  [00:00] MOLE jacobian2D on the transposed grid: ALL +
+  [00:00] N(z) mapped to 261731 centres: N 1.00e-04 .. 1.53e-02 1/s
+  [00:00] buoyancy coupling: energy-adjoint Ic_z; row sums 1.000000..1.000000; max change vs MOLE 1.000e+00; adjointness error 3.3e-14
+  [00:00] bottom/top BC: w = (z_xi/x_xi) u   |slope| max 0.0570
+  [00:00] C: 2302 bed rows, 6906 nnz; agrees with bc_residual loop to 1.11e-16
+  [00:00] D*G on the bed ghost rows: max|entry| 0.00e+00 (empty, as expected)
+  [00:00] constraint row equilibration: x1.90e-01 .. 1.95e+00 (cancels out of the solution; check with --bedeq unit)
+  [00:00] L: n=261731 nnz=5454073 (20.8/row) bedmode=constraint, factorising ...
+python.exe : C:\Users\dap21\anaconda3\envs\mole\Lib\site-packages\cupy\_environment.py:286: UserWarning: CUDA path 
+could not be detected. Set CUDA_PATH environment variable if CuPy fails to load.
+At C:\Users\dap21\gccom-mole-experiments-2026\mry_diag.ps1:53 char:12
++     $out = & python iwbcurv.py --mole $env:MOLE_SRC @free @a 2>&1
++            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (C:\Users\dap21\... fails to load.:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  warnings.warn(
+No multithreading interface library was specified using the DirectSolverOptions. The performance of CPU operations 
+like planning will be significantly lower than if you provide a multithreading library.
+  [00:03] cudss factorise 2.4s  (GPU, FP64)
+  [00:03] static projection test: div 1.11e-10 OK   bed 1.86e-10 OK
+  [00:03] dt=74.53 s  (12000 steps, 600/period)  T=44720.2 s
+  [00:03] sponge: Lsl=1516 m (0.15 Lx)  taus=1490.0 s  taus/T=0.0333  dt/taus=0.05 OK
+  [00:03] random initial field, amplitude 0.001, projected: ||u|| 5.013e-01  ||w|| 7.752e-02
+  [00:03] probe box |x-4000|<1000 m, bottom 60 m: 12210 w-faces
+  [00:03] time loop on the GPU: fields and operators resident; 2180/8188 MiB in use
+  [00:03] stiffness : N_max*dt = 1.14 (N_max 1.53e-02, dt 74.5 s)  MARGINAL
+    [00:03 elapsed] time loop: 12000 steps
+    probe t/T=   1.0  ||u||=3.1839e-01  ||w||=5.2060e-02  ridge ||w||=7.2022e-03  max|w|=5.629e-04
+    probe t/T=   2.0  ||u||=3.0680e-01  ||w||=5.1142e-02  ridge ||w||=6.9602e-03  max|w|=5.591e-04
+    probe t/T=   3.0  ||u||=3.0014e-01  ||w||=4.9296e-02  ridge ||w||=5.9015e-03  max|w|=5.827e-04
+    probe t/T=   4.0  ||u||=2.9551e-01  ||w||=4.8639e-02  ridge ||w||=6.2663e-03  max|w|=5.753e-04
+    [00:17] consistency: div 9.83e-12  bed 6.11e-13   BOTH OK
+    [00:17] t/T=  4.0  max|u|=9.820e-03  max|w|=5.753e-04
+    probe t/T=   5.0  ||u||=2.9880e-01  ||w||=4.7186e-02  ridge ||w||=6.0876e-03  max|w|=5.449e-04
+    probe t/T=   6.0  ||u||=3.2120e-01  ||w||=4.6756e-02  ridge ||w||=5.8935e-03  max|w|=5.037e-04
+    probe t/T=   7.0  ||u||=4.0751e-01  ||w||=4.5422e-02  ridge ||w||=5.7949e-03  max|w|=6.514e-04
+    probe t/T=   8.0  ||u||=4.7537e-01  ||w||=4.5171e-02  ridge ||w||=6.0940e-03  max|w|=8.888e-04
+    [00:30] consistency: div 2.42e-12  bed 5.23e-14   BOTH OK
+    [00:30] t/T=  8.0  max|u|=4.212e-02  max|w|=8.888e-04
+
+  *** DIVERGED at t/T=8.73: max|u|=5.196e-02, 52.0x the initial noise amplitude 0.001 ***
+  GROWTH  ridge ||w||   periods 5-8: rate -0.0014 per period  decay time 730.1 periods  -> stable
+  GROWTH  domain ||w||  periods 5-8: rate -0.0160 per period  decay time 62.5 periods  -> stable
+  (no beam angle reported -- the field is not physical)
+

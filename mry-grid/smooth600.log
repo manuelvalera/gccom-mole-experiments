@@ -1,0 +1,81 @@
+﻿
+=== iwbcurv  omega/N=0.6  384x76  20 periods  Lx=10.1 km  D0=88 m  k=2  alpha=1e-06  ramp=0T  FULLY CURVILINEAR ===
+  theory: nonhydrostatic 2.19 deg (Eq.30)   hydrostatic 2.19 deg (Eq.31)
+  N(z) from mry_N.txt: 1.00e-04 .. 1.53e-02 1/s over the water column
+  beam slope varies 0.0097 .. 0.0734 (5-95%); the angle above is the mid-depth value only
+  *** N < omega over 6% of the column: evanescent there, no propagating beam ***
+  window: auto [345, 1609] m (bounce = 2299 m; keeps the fit inside the first bounce)
+  [00:00] generating grid (TFI, position-dependent beta) ...
+  [01:32] jacobian  : ALL +   |J| 3.966 .. 53.31
+  [01:32] grid angle: 6.1 - 166.3 deg  (90 = orthogonal)
+  [01:32] xi-line wander top-to-bottom: 248.8 m  -> FULLY CURVILINEAR
+  [01:32] r_x       : max 5.820  median 0.022  *** VIOLATED (>1) ***
+  [01:32] resolution: dx=26.4 m  dz=1.2 m  aspect 0.044
+  [01:32] lepticity : h_e=48 m  lambda=dx/h_e=0.5453  Gamma~0.2974  *** MARGINAL ***
+  [01:32] beam      : slope 0.0382, bounce 2.30 km, 4.4 bounces across the domain
+  [01:32] --forcegrid: grid check FAILED, running anyway
+  [01:36] MOLE jacobian2D on the transposed grid: ALL +
+  [01:36] N(z) mapped to 29645 centres: N 1.00e-04 .. 1.53e-02 1/s
+  [01:36] buoyancy coupling: energy-adjoint Ic_z; row sums 1.000000..1.000000; max change vs MOLE 1.000e+00; adjointness error 1.7e-15
+  [01:36] bottom/top BC: w = (z_xi/x_xi) u   |slope| max 0.0497
+  [01:36] C: 766 bed rows, 2298 nnz; agrees with bc_residual loop to 5.55e-17
+  [01:36] D*G on the bed ghost rows: max|entry| 0.00e+00 (empty, as expected)
+  [01:36] constraint row equilibration: x7.27e-02 .. 6.55e-01 (cancels out of the solution; check with --bedeq unit)
+  [01:36] L: n=29645 nnz=608495 (20.5/row) bedmode=constraint, factorising ...
+python.exe : C:\Users\dap21\anaconda3\envs\mole\Lib\site-packages\cupy\_environment.py:286: UserWarning: CUDA path 
+could not be detected. Set CUDA_PATH environment variable if CuPy fails to load.
+At C:\Users\dap21\gccom-mole-experiments-2026\mry_grid.ps1:58 char:12
++     $out = & python iwbcurv.py --mole $env:MOLE_SRC @free @a 2>&1
++            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (C:\Users\dap21\... fails to load.:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  warnings.warn(
+No multithreading interface library was specified using the DirectSolverOptions. The performance of CPU operations 
+like planning will be significantly lower than if you provide a multithreading library.
+  [01:37] cudss factorise 1.0s  (GPU, FP64)
+  [01:37] static projection test: div 4.35e-10 OK   bed 2.73e-10 OK
+  [01:37] dt=74.53 s  (12000 steps, 600/period)  T=44720.2 s
+  [01:37] sponge: Lsl=1516 m (0.15 Lx)  taus=1490.0 s  taus/T=0.0333  dt/taus=0.05 OK
+  [01:37] random initial field, amplitude 0.001, projected: ||u|| 1.656e-01  ||w|| 2.364e-02
+  [01:37] blow-up threshold 1.95e-01 = 50x the initial max|u| 3.89e-03
+  [01:37] probe box |x-4000|<1000 m, within 60 m of the local bed: 4677 w-faces
+  [01:37] time loop on the GPU: fields and operators resident; 1288/8188 MiB in use
+  [01:37] stiffness : N_max*dt = 1.14 (N_max 1.53e-02, dt 74.5 s)  MARGINAL
+    [01:37 elapsed] time loop: 12000 steps
+    probe t/T=   1.0  ||u||=1.0527e-01  ||w||=1.5636e-02  ridge ||w||=3.1996e-03  max|w|=4.783e-04
+    probe t/T=   2.0  ||u||=1.0024e-01  ||w||=1.5215e-02  ridge ||w||=2.8266e-03  max|w|=4.641e-04
+    probe t/T=   3.0  ||u||=9.7707e-02  ||w||=1.4389e-02  ridge ||w||=2.6590e-03  max|w|=4.476e-04
+    probe t/T=   4.0  ||u||=9.7755e-02  ||w||=1.4376e-02  ridge ||w||=2.3661e-03  max|w|=4.262e-04
+    [01:41] consistency: div 5.92e-13  bed 1.79e-13   BOTH OK
+    [01:41] t/T=  4.0  max|u|=4.840e-03 at (x=    2849, z=  -64.6)  max|w|=4.262e-04
+    probe t/T=   5.0  ||u||=9.8770e-02  ||w||=1.3559e-02  ridge ||w||=1.6510e-03  max|w|=4.398e-04
+    probe t/T=   6.0  ||u||=1.0721e-01  ||w||=1.3371e-02  ridge ||w||=1.3941e-03  max|w|=4.776e-04
+    probe t/T=   7.0  ||u||=1.2182e-01  ||w||=1.2979e-02  ridge ||w||=1.1583e-03  max|w|=4.736e-04
+    probe t/T=   8.0  ||u||=1.7336e-01  ||w||=1.2854e-02  ridge ||w||=9.6016e-04  max|w|=3.860e-04
+    [01:45] consistency: div 1.30e-13  bed 2.23e-14   BOTH OK
+    [01:45] t/T=  8.0  max|u|=1.705e-02 at (x=    2046, z=  -72.7)  max|w|=3.860e-04
+    probe t/T=   9.0  ||u||=2.2488e-01  ||w||=1.2172e-02  ridge ||w||=7.9403e-04  max|w|=3.673e-04
+    probe t/T=  10.0  ||u||=2.3280e-01  ||w||=1.1929e-02  ridge ||w||=8.2589e-04  max|w|=3.644e-04
+    probe t/T=  11.0  ||u||=4.1770e-01  ||w||=1.2033e-02  ridge ||w||=8.9166e-04  max|w|=4.464e-04
+    probe t/T=  12.0  ||u||=3.2029e-01  ||w||=1.1933e-02  ridge ||w||=7.4906e-04  max|w|=3.725e-04
+    [01:49] consistency: div 3.43e-13  bed 5.38e-14   BOTH OK
+    [01:49] t/T= 12.0  max|u|=3.158e-02 at (x=    1114, z=  -79.2)  max|w|=3.725e-04
+    probe t/T=  13.0  ||u||=5.7072e-01  ||w||=1.1183e-02  ridge ||w||=9.1116e-04  max|w|=3.243e-04
+    probe t/T=  14.0  ||u||=4.3389e-01  ||w||=1.1318e-02  ridge ||w||=7.4040e-04  max|w|=4.190e-04
+    probe t/T=  15.0  ||u||=4.1994e-01  ||w||=1.1392e-02  ridge ||w||=9.7028e-04  max|w|=3.610e-04
+    probe t/T=  16.0  ||u||=4.7670e-01  ||w||=1.1806e-02  ridge ||w||=9.1044e-04  max|w|=3.361e-04
+    [01:54] consistency: div 1.05e-14  bed 2.55e-15   BOTH OK
+    [01:54] t/T= 16.0  max|u|=1.842e-02 at (x=    2261, z=  -66.8)  max|w|=3.361e-04
+    probe t/T=  17.0  ||u||=3.7480e-01  ||w||=1.1415e-02  ridge ||w||=8.6740e-04  max|w|=3.554e-04
+    probe t/T=  18.0  ||u||=3.3124e-01  ||w||=1.0713e-02  ridge ||w||=8.9503e-04  max|w|=3.573e-04
+    probe t/T=  19.0  ||u||=4.3131e-01  ||w||=1.0945e-02  ridge ||w||=1.0357e-03  max|w|=3.466e-04
+    probe t/T=  20.0  ||u||=4.4723e-01  ||w||=1.1167e-02  ridge ||w||=9.5517e-04  max|w|=3.457e-04
+    [01:58] consistency: div 2.66e-16  bed 4.67e-17   BOTH OK
+    [01:58] t/T= 20.0  max|u|=3.379e-02 at (x=    1977, z=  -73.3)  max|w|=3.457e-04
+  [01:58] time loop: 12000 steps in 20.7 s = 1.7 ms/step  (solver cudss: solve 0.7, everything else 1.0 ms/step)
+  GROWTH  ridge ||w||   periods 11-20: rate +0.0194 per period  e-folding 51.4 periods  -> UNSTABLE
+  GROWTH  domain ||w||  periods 11-20: rate -0.0087 per period  decay time 115.4 periods  -> stable
+
+  (free run: no forcing, no beam angle)
+

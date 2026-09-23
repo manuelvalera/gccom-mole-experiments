@@ -1,0 +1,82 @@
+﻿
+=== iwbcurv  omega/N=0.6  1152x226  16 periods  Lx=10.1 km  D0=88 m  k=2  alpha=1e-06  ramp=3T  FULLY CURVILINEAR ===
+  theory: nonhydrostatic 2.19 deg (Eq.30)   hydrostatic 2.19 deg (Eq.31)
+  N(z) from mry_N.txt: 1.00e-04 .. 1.53e-02 1/s over the water column
+  beam slope varies 0.0097 .. 0.0734 (5-95%); the angle above is the mid-depth value only
+  *** N < omega over 6% of the column: evanescent there, no propagating beam ***
+  window: auto [345, 1609] m (bounce = 2299 m; keeps the fit inside the first bounce)
+  [00:00] grid from cache (grid_c688bd0e6fa6715a.npz)
+  [00:00] jacobian  : ALL +   |J| 0.391 .. 5.936
+  [00:00] grid angle: 5.9 - 166.6 deg  (90 = orthogonal)
+  [00:00] xi-line wander top-to-bottom: 248.8 m  -> FULLY CURVILINEAR
+  [00:00] r_x       : max 13.982  median 0.024  *** VIOLATED (>1) ***
+  [00:00] resolution: dx=8.8 m  dz=0.4 m  aspect 0.044
+  [00:00] lepticity : h_e=48 m  lambda=dx/h_e=0.1815  Gamma~0.0329  OK (<<1)
+  [00:00] beam      : slope 0.0382, bounce 2.30 km, 4.4 bounces across the domain
+  [00:00] --forcegrid: grid check FAILED, running anyway
+  [00:00] operators from cache (ops_49715a2f081ee9e4.npz)
+  [00:00] MOLE jacobian2D on the transposed grid: ALL +
+  [00:00] N(z) mapped to 261731 centres: N 1.00e-04 .. 1.53e-02 1/s
+  [00:00] buoyancy coupling: energy-adjoint Ic_z; row sums 1.000000..1.000000; max change vs MOLE 1.000e+00; adjointness error 3.3e-14
+  [00:00] bottom/top BC: w = (z_xi/x_xi) u   |slope| max 0.0570
+  [00:00] C: 2302 bed rows, 6906 nnz; agrees with bc_residual loop to 1.11e-16
+  [00:00] D*G on the bed ghost rows: max|entry| 0.00e+00 (empty, as expected)
+  [00:00] constraint row equilibration: x1.90e-01 .. 1.95e+00 (cancels out of the solution; check with --bedeq unit)
+  [00:00] L: n=261731 nnz=5454073 (20.8/row) bedmode=constraint, factorising ...
+python.exe : C:\Users\dap21\anaconda3\envs\mole\Lib\site-packages\cupy\_environment.py:286: UserWarning: CUDA path 
+could not be detected. Set CUDA_PATH environment variable if CuPy fails to load.
+At C:\Users\dap21\gccom-mole-experiments-2026\mry_sponge.ps1:44 char:12
++     $out = & python iwbcurv.py --mole $env:MOLE_SRC @common @a 2>&1
++            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (C:\Users\dap21\... fails to load.:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  warnings.warn(
+No multithreading interface library was specified using the DirectSolverOptions. The performance of CPU operations 
+like planning will be significantly lower than if you provide a multithreading library.
+  [00:03] cudss factorise 2.4s  (GPU, FP64)
+  [00:03] static projection test: div 1.12e-10 OK   bed 1.61e-10 OK
+  [00:03] dt=74.53 s  (9600 steps, 600/period)  T=44720.2 s
+  [00:03] sponge: Lsl=3033 m (0.30 Lx)  taus=450.0 s  taus/T=0.0101  dt/taus=0.17 OK
+  [00:03] barotropic forcing: uniform transport, u_bc/u0 spans 1.00 .. 10.00 (depth 8.3 .. 87.8 m, clip 10)
+  [00:03] probe box |x-0|<20000 m, within 500 m of the local bed: 260126 w-faces
+  [00:03] time loop on the GPU: fields and operators resident; 2182/8188 MiB in use
+  [00:03] stiffness : N_max*dt = 1.14 (N_max 1.53e-02, dt 74.5 s)  MARGINAL
+    [00:03 elapsed] time loop: 9600 steps
+    probe t/T=   1.0  ||u||=3.8092e-01  ||w||=7.2808e-03  ridge ||w||=7.2808e-03  max|w|=1.632e-04
+    probe t/T=   2.0  ||u||=1.4730e+00  ||w||=2.9121e-02  ridge ||w||=2.9121e-02  max|w|=6.438e-04
+    probe t/T=   3.0  ||u||=2.3070e+00  ||w||=4.5866e-02  ridge ||w||=4.5866e-02  max|w|=9.790e-04
+    [00:13] consistency: div 3.96e-13  bed 8.48e-14   BOTH OK
+    [00:13] t/T=  3.2  max|u|=9.387e-02 at (x=    5055, z=   -8.3)  max|w|=3.264e-03
+    probe t/T=   4.0  ||u||=2.4271e+00  ||w||=4.7884e-02  ridge ||w||=4.7884e-02  max|w|=1.005e-03
+    probe t/T=   5.0  ||u||=2.4206e+00  ||w||=4.7913e-02  ridge ||w||=4.7913e-02  max|w|=1.011e-03
+    probe t/T=   6.0  ||u||=2.4204e+00  ||w||=4.7874e-02  ridge ||w||=4.7874e-02  max|w|=1.010e-03
+    [00:23] consistency: div 4.46e-13  bed 7.06e-14   BOTH OK
+    [00:23] t/T=  6.4  max|u|=6.306e-02 at (x=    5044, z=   -2.7)  max|w|=2.141e-03
+    probe t/T=   7.0  ||u||=2.4207e+00  ||w||=4.7884e-02  ridge ||w||=4.7884e-02  max|w|=1.010e-03
+    probe t/T=   8.0  ||u||=2.4207e+00  ||w||=4.7888e-02  ridge ||w||=4.7888e-02  max|w|=1.010e-03
+    probe t/T=   9.0  ||u||=2.4209e+00  ||w||=4.7889e-02  ridge ||w||=4.7889e-02  max|w|=1.010e-03
+    [00:33] consistency: div 1.01e-12  bed 1.96e-13   BOTH OK
+    [00:33] t/T=  9.6  max|u|=5.588e-02 at (x=    5055, z=   -8.3)  max|w|=1.939e-03
+    probe t/T=  10.0  ||u||=2.4209e+00  ||w||=4.7892e-02  ridge ||w||=4.7892e-02  max|w|=1.010e-03
+    probe t/T=  11.0  ||u||=2.4210e+00  ||w||=4.7894e-02  ridge ||w||=4.7894e-02  max|w|=1.010e-03
+    probe t/T=  12.0  ||u||=2.4211e+00  ||w||=4.7895e-02  ridge ||w||=4.7895e-02  max|w|=1.010e-03
+    [00:44] consistency: div 5.23e-14  bed 1.08e-14   BOTH OK
+    [00:44] t/T= 12.8  max|u|=9.662e-02 at (x=    5046, z=   -2.0)  max|w|=3.338e-03
+    probe t/T=  13.0  ||u||=2.4211e+00  ||w||=4.7895e-02  ridge ||w||=4.7895e-02  max|w|=1.010e-03
+    probe t/T=  14.0  ||u||=2.4211e+00  ||w||=4.7895e-02  ridge ||w||=4.7895e-02  max|w|=1.010e-03
+    probe t/T=  15.0  ||u||=2.4211e+00  ||w||=4.7895e-02  ridge ||w||=4.7895e-02  max|w|=1.010e-03
+    probe t/T=  16.0  ||u||=2.4211e+00  ||w||=4.7895e-02  ridge ||w||=4.7895e-02  max|w|=1.010e-03
+    [00:54] consistency: div 2.11e-12  bed 4.20e-13   BOTH OK
+    [00:54] t/T= 16.0  max|u|=2.773e-02 at (x=    4245, z=  -24.9)  max|w|=1.010e-03
+  [00:54] time loop: 9600 steps in 50.9 s = 5.3 ms/step  (solver cudss: solve 4.1, everything else 1.2 ms/step)
+  GROWTH  ridge ||w||   periods 9-16: rate +0.0000 per period  flat (neutral)
+  GROWTH  domain ||w||  periods 9-16: rate +0.0000 per period  flat (neutral)
+
+  fit over |x| in [345,1609] m, 343 points, rms residual 6.4 m
+  field: max/mean 24.2  (>>5 means a coherent beam; ~5 means reflections dominate)
+  BEAM ANGLE  measured 1.09   nonhydrostatic 2.19   hydrostatic 2.19   error -1.10 deg (-50.1%)
+  saved mry-sponge\conv_1152.npz
+
+  total wall time 00:54
+
