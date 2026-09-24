@@ -89,6 +89,21 @@ The fixed solver decays at the same rate as one with no buoyancy coupling at
 all, which is as complete as this test can show. A 20 m ridge that used to
 diverge at period 79 now runs 150 periods cleanly.
 
+## Validation, animated
+
+The three cases the solver is verified against, run with nonlinear advection
+(`--advect full`, second-order upwinding):
+
+| | |
+|---|---|
+| **Lock release.** The interface collapses into a gravity current and Kelvin-Helmholtz billows roll up along it. Front speed Fr = 0.69 against the inviscid 0.7071 and the 2021 mimetic GCCOM's 0.705. | <img src="docs/animations/lock_release.gif" width="380"> |
+| **Seiche.** A standing internal wave in a flat box, the case with an exact frequency. At small amplitude the nonlinear code reproduces the linear result to 0.04%. | <img src="docs/animations/seiche.gif" width="380"> |
+| **Internal-wave beam.** Radiation from a ridge under tidal forcing — the experiment the 2021 mimetic GCCOM could not sustain. Steady for 25 periods at 53.55 deg against 53.13 deg theory. | <img src="docs/animations/beam.gif" width="380"> |
+
+Rebuild them with `animate3.ps1` (runs and frames) then `animate_web.ps1`
+(sizes for the web). The solver writes frames with `--frames DIR`; `animate.py`
+renders any of buoyancy, vertical velocity, horizontal velocity or speed.
+
 ## 3. Beam angle
 
 Measured with the perpendicular-slice energy centroid over 0.10–0.40 of a

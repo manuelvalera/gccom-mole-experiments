@@ -46,8 +46,11 @@ def field_of(fr, which, shape, baroclinic=True):
     """
     u = fr['u'].reshape(shape)
     w = fr['w'].reshape(shape)
-    if baroclinic:
+    if baroclinic and which != 'b':
         u = u - u.mean(axis=0, keepdims=True)         # rows are depth; x is fastest
+    if which == 'b':
+        # buoyancy: the field that makes a lock release or a bore visible at all
+        return fr['b'].reshape(shape) if 'b' in fr else np.zeros(shape)
     if which == 'speed':
         return np.sqrt(u**2 + w**2)
     if which == 'w':
@@ -59,7 +62,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('dir')
     ap.add_argument('-o', '--out', default='animation.gif')
-    ap.add_argument('--field', default='speed', choices=['speed', 'w', 'u'])
+    ap.add_argument('--field', default='speed', choices=['speed', 'w', 'u', 'b'])
     ap.add_argument('--fps', type=float, default=12.0)
     ap.add_argument('--log', action='store_true',
                     help='logarithmic colour scale (speed only)')
@@ -90,7 +93,7 @@ def main():
     ref = np.load(files[min(int(g.climfrom*len(files)), len(files) - 1)])
     refv = field_of(ref, g.field, shape, not g.baro)[1:-1, 1:-1]
     scale = g.clim if g.clim else float(np.percentile(np.abs(refv), 99.8))
-    signed = g.field in ('w', 'u')
+    signed = g.field in ('w', 'u', 'b')
 
     fig, ax = plt.subplots(figsize=(11, 4.2))
     first = field_of(np.load(files[0]), g.field, shape, not g.baro)[1:-1, 1:-1]
@@ -113,7 +116,8 @@ def main():
     ax.set_ylabel('z (m)')
     if g.xlim:
         ax.set_xlim(-g.xlim, g.xlim)
-    fig.colorbar(mesh, ax=ax, label=f'{g.field} (m/s)')
+    fig.colorbar(mesh, ax=ax,
+                 label=('buoyancy (m/s^2)' if g.field == 'b' else f'{g.field} (m/s)'))
     title = ax.set_title('')
     fig.tight_layout()
 
@@ -121,9 +125,10 @@ def main():
         fr = np.load(files[i])
         v = field_of(fr, g.field, shape, not g.baro)[1:-1, 1:-1]
         mesh.set_array(v.ravel())
-        title.set_text(f"t / T = {float(fr['tT']):6.2f}      "
-                       f"{'' if g.baro else 'baroclinic '}{g.field}, "
-                       f"scale fixed at {scale:.2e} m/s")
+        _unit = 'm/s^2' if g.field == 'b' else 'm/s'
+        _pre = '' if (g.baro or g.field == 'b') else 'baroclinic '
+        title.set_text(f"t / T = {float(fr['tT']):6.2f}      {_pre}{g.field}, "
+                       f"scale fixed at {scale:.2e} {_unit}")
         return mesh, title
 
     anim = animation.FuncAnimation(fig, draw, frames=len(files), blit=False)

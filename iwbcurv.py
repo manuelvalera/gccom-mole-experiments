@@ -618,6 +618,11 @@ def main():
                          'the buoyancy equation in flux form, which is the first step\n'
                          'toward the bores of Walter et al. (2012); momentum advection\n'
                          'follows. full adds momentum advection as well.')
+    ap.add_argument('--seicheamp', type=float, default=1.0,
+                    help='amplitude of the seiche initial condition in m/s. The linear\n'
+                         'solver is amplitude-independent, so the default of 1 costs\n'
+                         'nothing there -- but 1 m/s in a 1 km box is violently\n'
+                         'nonlinear, so use something small (1e-3) with --advect full.')
     ap.add_argument('--advbg', default='split', choices=['split', 'total'],
                     help='what the advection scheme is applied to. split (the\n'
                          'default) advects only the perturbation and adds the\n'
@@ -1304,9 +1309,21 @@ def main():
         zp_u = Zu.ravel() + D0
         xp_w = Xf.ravel() + LX / 2.0
         zp_w = Zf.ravel() + D0
-        u = -(pz / kx) * np.sin(kx * xp_u) * np.cos(pz * zp_u)
-        w = np.cos(kx * xp_w) * np.sin(pz * zp_w)
+        u = -g.seicheamp * (pz / kx) * np.sin(kx * xp_u) * np.cos(pz * zp_u)
+        w = g.seicheamp * np.cos(kx * xp_w) * np.sin(pz * zp_w)
         wref = w.copy()
+        _smet = logical_metrics(XM, ZM, np) if g.advect == 'full' else None
+        _si = np.zeros((n + 2, m + 2))
+        _si[1:-1, 1:-1] = 1.0
+        _sint = _si.ravel()
+        _sfr_every = max(int(round(g.spp / max(g.framerate, 1e-9))), 1) if g.frames else 0
+        _sfr_n = 0
+        if g.frames:
+            os.makedirs(g.frames, exist_ok=True)
+            np.savez_compressed(os.path.join(g.frames, 'grid.npz'),
+                                X=XM, Z=ZM, T=T_ex, om=om_ex, ratio=g.ratio,
+                                D0=D0, Lx=LX)
+            print(f"  [{el()}] frames -> {g.frames}")
         v2 = np.zeros(nu_)
         _cf2 = np.cos(fcor * dt)
         _sf2 = np.sin(fcor * dt)
@@ -1336,8 +1353,11 @@ def main():
                 _ur = u * _cf2 + v2 * _sf2
                 v2 = -u * _sf2 + v2 * _cf2
                 u = _ur
-            us = u - dt * gp[:nu_]
-            ws = w - dt * gp[nu_:] + dt * (Ic_zb @ b)
+            _sau = _saw = 0.0
+            if g.advect == 'full':
+                _sau, _saw = advect_momentum(u, w, _smet, n, m, g.advscheme, np)
+            us = u - dt * gp[:nu_] - dt * _sau
+            ws = w - dt * gp[nu_:] + dt * (Ic_zb @ b) - dt * _saw
             usw = np.concatenate([us, ws])
             rhs = (D @ usw) / dt
             rhs[bedidx] = bedsc * (C @ usw) / dt
@@ -1346,7 +1366,19 @@ def main():
             u = us - dt * gph[:nu_]
             w = ws - dt * gph[nu_:]
             gp = gp + gph
-            b = b - dt * N2c * (Idf_w @ w)
+            if g.advect in ('scalar', 'full'):
+                b = b - dt * (N2c * (Idf_w @ w)
+                              + advect_centred(b, u, w, D, n, m, nc, g.advscheme, np)
+                              * _sint)
+            else:
+                b = b - dt * N2c * (Idf_w @ w)
+            if _sfr_every and it % _sfr_every == 0:
+                np.savez_compressed(os.path.join(g.frames, f"frame_{_sfr_n:05d}.npz"),
+                                    u=(Idf_u @ u).astype(np.float32),
+                                    w=(Idf_w @ w).astype(np.float32),
+                                    b=b.astype(np.float32), t=np.float32(t),
+                                    tT=np.float32(t / T_ex))
+                _sfr_n += 1
             a_t[it] = (wref @ w) / nrm
             if not np.isfinite(a_t[it]) or abs(a_t[it]) > 1e3:
                 print(f"\n  *** seiche DIVERGED at step {it} ***\n")
@@ -1674,7 +1706,8 @@ def main():
             _uc = _h(_Iu @ u).astype(np.float32)
             _wcf = _h(wc).astype(np.float32)
             np.savez_compressed(os.path.join(g.frames, f"frame_{_fr_n:05d}.npz"),
-                                u=_uc, w=_wcf, t=np.float32(t), tT=np.float32(t / T))
+                                u=_uc, w=_wcf, b=_h(b).astype(np.float32),
+                                t=np.float32(t), tT=np.float32(t / T))
             _fr_n += 1
         if g.probe and it % g.spp == 0:
             _nu = float(xp.linalg.norm(u)) / np.sqrt(nu_)      # plain rms over faces
