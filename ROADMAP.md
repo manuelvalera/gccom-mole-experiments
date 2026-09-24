@@ -73,7 +73,50 @@ Separately: the October 2021 curvilinear seamount used `grad3DCurv`, which calls
 `GI13` — broken in MOLE until csrc-sdsu/mole#466. Those results were computed
 with a gradient that does not converge on curvilinear grids.
 
-## Stage 1 — nonlinear advection in 2-D
+## Stage 1 — nonlinear advection in 2-D — DONE
+
+Implemented in `iwbcurv.py` (`--advect scalar|full`, `--advscheme
+upwind1|upwind2|minmod`, `--advbg split|total`) and verified:
+
+| check | result |
+|---|---|
+| flux form reproduces `div(u)` for a constant field | exact, every scheme |
+| scalar order on a smooth bump | 0.5 / 1.3-1.6 / 1.2-1.5 |
+| monotonicity at a step | bounded for upwind1 and minmod; upwind2 overshoots 0.21 |
+| momentum: uniform flow, `u = x`, solid-body rotation | 1e-15 |
+| momentum on a smoothly stretched grid, refined | order 1.83 -> 1.97 |
+| lock release, 101 -> 801 cells (minmod) | Fr 0.654, 0.663, 0.674, 0.686 |
+| lock release at 401x101, upwind2 | **Fr 0.699** vs theory 0.7071, published 0.705 |
+| nonlinear beam, 25 periods, 512x201 | stable, 53.55 deg vs 53.13, max/mean 13.8 |
+| regression, `--advect none` | bit-identical to every earlier result |
+
+Findings worth carrying forward:
+
+- **First-order advection alone does not explain the 2021 beam failure.** With
+  `upwind1` -- the accuracy of `d2D`/`d3D` -- beams survive 25 periods at
+  53.21 deg. The structural difference is what the scheme is applied TO: this
+  solver advects only the perturbation and adds the background analytically as
+  `N^2 w`, while the 2021 code advects the full temperature field, so its
+  numerical diffusion acts on the stratification itself. `--advbg total`
+  diverges at t/T = 1.8 where `split` is stable, which points the same way --
+  though that implementation does not yet treat the background flux through a
+  sloping bed consistently, so it is a lead rather than a result.
+- **minmod reverts to first order at a front.** In the lock release it landed
+  exactly on `upwind1` (0.6742 against 0.6741) while `upwind2` reached 0.699.
+  Monotonicity is bought at the price of accuracy precisely where a bore lives,
+  so the bore case may need a higher-order limiter.
+- **More diffusion can flatter the diagnostics.** `upwind1` gave the straightest
+  beam and the smallest angle bias, because it smooths the far field where the
+  sag lives. Not accuracy.
+- **`alpha` is scale-dependent, not a constant.** It regularises a matrix whose
+  entries scale as 1/dx^2: 1e-6 is right at 6 km and breaks the projection at
+  0.8 m, where ~1 gives residuals of 1e-14. A dimensionless form, normalised by
+  the mean Laplacian diagonal, would remove the trap.
+
+Scripts: `advect_test.py` (operator tests), `lock_test.ps1` (benchmark),
+`beam_nonlinear.ps1` (scheme comparison on the beam).
+
+## Stage 1 as originally planned
 
 Port the `Main.m` structure into `iwbcurv.py`, carrying over what is verified
 here (projection, bed constraint, energy-consistent buoyancy, sponges, GPU path)

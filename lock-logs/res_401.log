@@ -1,0 +1,61 @@
+﻿
+=== iwbcurv  omega/N=0.6  401x101  1 periods  Lx=0.0 km  D0=0 m  k=2  alpha=1e+00  ramp=0T  FULLY CURVILINEAR ===
+  lock release: no forcing, no stratification; the beam-angle diagnostics below do not apply
+  window: auto [0, 1] m (bounce = 0 m; keeps the fit inside the first bounce)
+  [00:00] grid from cache (grid_7b24d4a9f4af4e08.npz)
+  [00:00] jacobian  : ALL +   |J| 1.058e-06 .. 2.265e-06
+  [00:00] grid angle: 73.3 - 106.7 deg  (90 = orthogonal)
+  [00:00] xi-line wander top-to-bottom: 0.0 m  -> still a sigma grid
+  [00:00] r_x       : max 0.000  median 0.000  OK (<1)
+  [00:00] resolution: dx=0.002 m  dz=0.000656 m  aspect 0.328
+  [00:00] lepticity : h_e=0 m  lambda=dx/h_e=0.0553  Gamma~0.0031  OK (<<1)
+  [00:00] operators from cache (ops_ac148e299f904ca6.npz)
+  [00:00] MOLE jacobian2D on the transposed grid: ALL +
+  [00:00] buoyancy coupling: energy-adjoint Ic_z; row sums 1.000000..1.000000; max change vs MOLE 1.000e+00; adjointness error 1.4e-15
+  [00:00] bottom/top BC: w = (z_xi/x_xi) u   |slope| max 0.0000
+  [00:00] C: 800 bed rows, 2400 nnz; agrees with bc_residual loop to 0.00e+00
+  [00:00] D*G on the bed ghost rows: max|entry| 0.00e+00 (empty, as expected)
+  [00:00] constraint row equilibration: x1.14e+03 .. 1.14e+03 (cancels out of the solution; check with --bedeq unit)
+  [00:00] L: n=41004 nnz=743858 (18.1/row) bedmode=constraint, factorising ...
+python.exe : C:\Users\dap21\anaconda3\envs\mole\Lib\site-packages\cupy\_environment.py:286: UserWarning: CUDA path 
+could not be detected. Set CUDA_PATH environment variable if CuPy fails to load.
+At C:\Users\dap21\gccom-mole-experiments-2026\lock_test.ps1:37 char:12
++     $out = & python iwbcurv.py --mole $env:MOLE_SRC @common @a 2>&1
++            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (C:\Users\dap21\... fails to load.:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  warnings.warn(
+No multithreading interface library was specified using the DirectSolverOptions. The performance of CPU operations 
+like planning will be significantly lower than if you provide a multithreading library.
+  [00:01] cudss factorise 0.9s  (GPU, FP64)
+  [00:01] static projection test: div 1.05e-13 OK   bed 9.12e-14 OK
+  [00:01] dt=0.00 s  (5000 steps, 5000/period)  T=10.0 s
+  [00:01] sponge: Lsl=0 m (0.10 Lx)  taus=100.0 s  taus/T=10.0000  dt/taus=0.00 OK
+  [00:01] lock release: g' = 0.0224 m/s^2, H = 0.0656 m, sqrt(g'H) = 0.0383 m/s
+  [00:01] expected front speed 0.0192 m/s (Fr = 0.5 on sqrt(g'H) = 1/sqrt(2) on sqrt(g'H/2))
+  [00:01] time loop on the GPU: fields and operators resident; 1330/8188 MiB in use
+  [00:01] stiffness : N_max*dt = 0.00 (N_max 0.00e+00, dt 0.0 s)  OK (<1)
+    [00:01 elapsed] time loop: 5000 steps
+    [00:07] consistency: div 2.01e-13  bed 3.99e-20   BOTH OK
+    [00:07] t=   2.00  front x =  +0.0286 m  speed 0.0143 m/s  Fr = 0.5281  (since release 0.5281)
+    [00:07] t/T=  0.2  max|u|=2.608e-02 at (x=       0, z=   -0.1)  max|w|=1.422e-02
+    [00:12] consistency: div 1.23e-13  bed 3.23e-20   BOTH OK
+    [00:12] t=   4.00  front x =  +0.0679 m  speed 0.0197 m/s  Fr = 0.7250  (since release 0.6265)
+    [00:12] t/T=  0.4  max|u|=2.373e-02 at (x=       0, z=   -0.1)  max|w|=1.396e-02
+    [00:18] consistency: div 1.04e-13  bed 5.14e-20   BOTH OK
+    [00:18] t=   6.00  front x =  +0.1058 m  speed 0.0189 m/s  Fr = 0.6988  (since release 0.6506)
+    [00:18] t/T=  0.6  max|u|=2.428e-02 at (x=      -0, z=   -0.0)  max|w|=1.289e-02
+    [00:24] consistency: div 9.72e-14  bed 3.51e-20   BOTH OK
+    [00:24] t=   8.00  front x =  +0.1427 m  speed 0.0184 m/s  Fr = 0.6803  (since release 0.6581)
+    [00:24] t/T=  0.8  max|u|=2.563e-02 at (x=      -0, z=   -0.0)  max|w|=1.265e-02
+    [00:29] consistency: div 9.31e-14  bed 4.00e-20   BOTH OK
+    [00:29] t=  10.00  front x =  +0.1775 m  speed 0.0174 m/s  Fr = 0.6413  (since release 0.6547)
+    [00:29] t/T=  1.0  max|u|=2.645e-02 at (x=      -0, z=   -0.0)  max|w|=1.254e-02
+  [00:29] time loop: 5000 steps in 28.6 s = 5.7 ms/step  (solver cudss: solve 0.9, everything else 4.8 ms/step)
+
+  LOCK RELEASE  front speed 0.01827 m/s over t = 4.0-10.0 s (fit residual 0.95 mm)
+                Fr = 0.6742   theory 1/sqrt(2) = 0.7071   mimetic GCCOM 2021: 0.705 at 401x6x101
+
+  (free run: no forcing, no beam angle)
+

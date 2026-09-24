@@ -241,6 +241,168 @@ def _growth_report(hist):
               f"rate {sl:+.4f} per period  {verdict}")
 
 
+def upwind_faces(bc, u, w, n, m, scheme, xp):
+    """Upwind-biased interpolation of a cell-centred field onto the faces.
+
+    bc is (n+2, m+2) with the boundary points included, u is (n, m+1) on the
+    xi-faces and w is (n+1, m) on the eta-faces, matching the solver's layout.
+
+    Schemes:
+      upwind1  first order: take the upstream cell. What the 2021 code used
+               (d2D/d3D are [-1, 1]/dx), and the reason a beam dissipates over
+               twenty periods.
+      upwind2  second order: linear extrapolation from the two upstream cells.
+               Accurate but not monotone, so it overshoots at a front.
+      minmod   upwind2 with a minmod limiter: second order where the field is
+               smooth, first order at an extremum, monotone everywhere. This is
+               the one to use at a bore.
+    """
+    P = bc[1:-1, :]                                  # (n, m+2), rows = cells
+    Q = bc[:, 1:-1]                                  # (n+2, m), cols = cells
+    ix = xp.arange(m + 1)
+    iy = xp.arange(n + 1)
+
+    def pick(A, up, upup, down):
+        if scheme == 'upwind1':
+            return up
+        d1 = up - upup
+        if scheme == 'upwind2':
+            return up + 0.5 * d1
+        d2 = down - up
+        # minmod: zero slope where the two differences disagree in sign
+        lim = xp.where(d1 * d2 > 0, xp.sign(d1) * xp.minimum(xp.abs(d1), xp.abs(d2)), 0.0)
+        return up + 0.5 * lim
+
+    pos = u > 0
+    up = xp.where(pos, P[:, ix], P[:, ix + 1])
+    upup = xp.where(pos, P[:, xp.maximum(ix - 1, 0)], P[:, xp.minimum(ix + 2, m + 1)])
+    down = xp.where(pos, P[:, ix + 1], P[:, ix])
+    bu = pick(P, up, upup, down)
+
+    pos = w > 0
+    up = xp.where(pos, Q[iy, :], Q[iy + 1, :])
+    upup = xp.where(pos, Q[xp.maximum(iy - 1, 0), :], Q[xp.minimum(iy + 2, n + 1), :])
+    down = xp.where(pos, Q[iy + 1, :], Q[iy, :])
+    bw = pick(Q, up, upup, down)
+    return bu, bw
+
+
+def advect_centred(bvec, u, w, D, n, m, nc, scheme, xp):
+    """div(u b) at cell centres, in flux form.
+
+    Flux form with the mimetic divergence means the scheme conserves the
+    integral of b exactly, and because the projection makes div(u) zero to
+    round-off, div(u b) is u . grad(b). The curvilinear metrics come from D, so
+    nothing here assumes an orthogonal grid.
+    """
+    bc = bvec.reshape(n + 2, m + 2)
+    uu = u.reshape(n, m + 1)
+    ww = w.reshape(n + 1, m)
+    bu, bw = upwind_faces(bc, uu, ww, n, m, scheme, xp)
+    return D @ xp.concatenate([(uu * bu).ravel(), (ww * bw).ravel()])
+
+
+def logical_metrics(XM, ZM, xp):
+    """Contravariant metric factors at u-faces and w-faces, in index space.
+
+    On a curvilinear grid the advective derivative is not u df/dx + w df/dz but
+
+        u . grad f = U^xi df/dxi + U^eta df/deta,
+        U^xi  = u xi_x  + w xi_z,     U^eta = u eta_x + w eta_z,
+
+    with xi_x = z_eta/J, xi_z = -x_eta/J, eta_x = -z_xi/J, eta_z = x_xi/J.
+    Working in index space (dxi = deta = 1) keeps the same factor in the metric
+    and in the difference, so it cancels.
+
+    The 2021 mimetic GCCOM has exactly this written and commented out
+    (`Ui = uatu.*i_xu' + vatu.*i_yu'` replaced by `Ui = uatu`), i.e. it advected
+    with the Cartesian velocity on a curvilinear grid.
+    """
+    x_xi = xp.gradient(XM, axis=1)
+    x_et = xp.gradient(XM, axis=0)
+    z_xi = xp.gradient(ZM, axis=1)
+    z_et = xp.gradient(ZM, axis=0)
+    J = x_xi * z_et - x_et * z_xi
+    out = {}
+    for tag, avg in (('u', lambda A: 0.5 * (A[:-1, :] + A[1:, :])),
+                     ('w', lambda A: 0.5 * (A[:, :-1] + A[:, 1:]))):
+        Ja = avg(J)
+        out[tag] = (avg(z_et) / Ja, -avg(x_et) / Ja, -avg(z_xi) / Ja, avg(x_xi) / Ja)
+    return out
+
+
+def upwind_deriv(F, vel, axis, scheme, xp):
+    """One-sided derivative of F along `axis`, upwinded on the sign of `vel`.
+
+    Index spacing is 1. Second order uses (3f - 4f_-1 + f_-2)/2 on the upstream
+    side, which is the accuracy the 2021 one-sided operators lacked: d2D/d3D
+    are [-1, 1], first order, and that diffusion is what dissipated the beams.
+    """
+    N = F.shape[axis]
+    idx = xp.arange(N)
+    def at(shift):
+        j = xp.clip(idx + shift, 0, N - 1)
+        return xp.take(F, j, axis=axis)
+    back1 = F - at(-1)
+    fwd1 = at(1) - F
+    if scheme == 'upwind1':
+        return xp.where(vel > 0, back1, fwd1)
+    # A second-order one-sided stencil needs two cells upstream. Within two of
+    # the boundary those indices clip, and a clipped stencil is not a low-order
+    # approximation -- it is wrong: at the last row fwd2 collapses to
+    # 0.5*(-3F + 4F - F) = 0. Fall back to the first-order difference there.
+    shape = [1] * F.ndim
+    shape[axis] = N
+    ii = idx.reshape(shape)
+    back2 = xp.where(ii >= 2, 0.5 * (3.0 * F - 4.0 * at(-1) + at(-2)), back1)
+    fwd2 = xp.where(ii <= N - 3, 0.5 * (-3.0 * F + 4.0 * at(1) - at(2)), fwd1)
+    if scheme == 'upwind2':
+        return xp.where(vel > 0, back2, fwd2)
+    lim = lambda a, b: xp.where(a * b > 0, xp.sign(a) * xp.minimum(xp.abs(a), xp.abs(b)), 0.0)
+    return xp.where(vel > 0, lim(back2, back1), lim(fwd2, fwd1))
+
+
+def advect_momentum(u, w, met, n, m, scheme, xp):
+    """Advective terms for u and w, each evaluated where that component lives.
+
+    The other component is interpolated to the face in question, and both are
+    combined into contravariant velocities before differencing, so the upwind
+    direction is the one the flow actually takes through the cell rather than
+    the Cartesian sign.
+    """
+    U = u.reshape(n, m + 1)
+    W = w.reshape(n + 1, m)
+
+    # w at u-faces: mean of the four neighbouring eta-faces
+    Wp = xp.zeros((n + 2, m + 2))
+    Wp[:-1, 1:-1] = W
+    Wp[-1, 1:-1] = W[-1, :]
+    Wp[:, 0] = Wp[:, 1]
+    Wp[:, -1] = Wp[:, -2]
+    W_at_u = 0.25 * (Wp[:-2, :-1] + Wp[:-2, 1:] + Wp[1:-1, :-1] + Wp[1:-1, 1:])
+
+    # u at w-faces: mean of the four neighbouring xi-faces
+    Up = xp.zeros((n + 2, m + 2))
+    Up[1:-1, :-1] = U
+    Up[1:-1, -1] = U[:, -1]
+    Up[0, :] = Up[1, :]
+    Up[-1, :] = Up[-2, :]
+    U_at_w = 0.25 * (Up[:-1, :-2] + Up[1:, :-2] + Up[:-1, 1:-1] + Up[1:, 1:-1])
+
+    xix, xiz, etx, etz = met['u']
+    Uxi = U * xix + W_at_u * xiz
+    Uet = U * etx + W_at_u * etz
+    adv_u = Uxi * upwind_deriv(U, Uxi, 1, scheme, xp) \
+        + Uet * upwind_deriv(U, Uet, 0, scheme, xp)
+
+    xix, xiz, etx, etz = met['w']
+    Wxi = U_at_w * xix + W * xiz
+    Wet = U_at_w * etx + W * etz
+    adv_w = Wxi * upwind_deriv(W, Wxi, 1, scheme, xp) \
+        + Wet * upwind_deriv(W, Wet, 0, scheme, xp)
+    return adv_u.ravel(), adv_w.ravel()
+
+
 def pull(oc, nm):
     oc.eval(f"[ii,jj,vv]=find({nm}); sz=size({nm});")
     return sp.csr_matrix(
@@ -283,7 +445,7 @@ def splice_bed_rows(L, CG, bedidx, eq='auto'):
     return (sp.diags(keep) @ L + Pb @ (sp.diags(bedsc) @ CG)).tocsr(), bedsc
 
 
-def grid_diag(X, Z, nx, nz, phi_nh):
+def grid_diag(X, Z, nx, nz, phi_nh, lock_mode=False):
     """X, Z are (xi, eta).  Returns True if the grid looks usable."""
     xx = np.gradient(X, axis=0)
     xh = np.gradient(X, axis=1)
@@ -325,9 +487,11 @@ def grid_diag(X, Z, nx, nz, phi_nh):
     dz = D0 / (nz - 1)
     he = np.sqrt(3) / np.pi * D0
     lam = dx / he
-    print(f"  [{el()}] resolution: dx={dx:.1f} m  dz={dz:.1f} m  aspect {dz/dx:.3f}")
+    print(f"  [{el()}] resolution: dx={dx:.4g} m  dz={dz:.4g} m  aspect {dz/dx:.3f}")
     print(f"  [{el()}] lepticity : h_e={he:.0f} m  lambda=dx/h_e={lam:.4f}  "
           f"Gamma~{lam**2:.4f}  {'OK (<<1)' if lam**2 < 0.1 else '*** MARGINAL ***'}")
+    if lock_mode:
+        return ok
     print(f"  [{el()}] beam      : slope {np.tan(np.radians(phi_nh)):.4f}, "
           f"bounce {D0/np.tan(np.radians(phi_nh))/1000:.2f} km, "
           f"{LX/(D0/np.tan(np.radians(phi_nh))):.1f} bounces across the domain")
@@ -438,12 +602,54 @@ def main():
                          '(projected to be divergence-free and bed-consistent). With '
                          '--u0 0 this is a FREE run: no tide, so any growth is an '
                          'instability of the discretised equations, not the forcing.')
+    ap.add_argument('--lock', type=float, default=0.0,
+                    help="reduced gravity g' for a lock-release run: dense fluid "
+                         'fills x < 0 and light fluid x > 0, with no forcing and no '
+                         'sponge. The standard test of nonlinear advection, with '
+                         'published mimetic-GCCOM numbers to match (Fr 0.705 at '
+                         '401x6x101; theory 1/sqrt(2) on sqrt(g H / 2)).')
+    ap.add_argument('--tend', type=float, default=None,
+                    help='run length in seconds for --lock')
+    ap.add_argument('--dt', type=float, default=None,
+                    help='time step in seconds, overriding period/spp')
+    ap.add_argument('--advect', default='none', choices=['none', 'scalar', 'full'],
+                    help='nonlinear advection. none keeps the solver linear, as every\n'
+                         'verified result here was produced. scalar adds u.grad(b) to\n'
+                         'the buoyancy equation in flux form, which is the first step\n'
+                         'toward the bores of Walter et al. (2012); momentum advection\n'
+                         'follows. full adds momentum advection as well.')
+    ap.add_argument('--advbg', default='split', choices=['split', 'total'],
+                    help='what the advection scheme is applied to. split (the\n'
+                         'default) advects only the perturbation and adds the\n'
+                         'background as N^2 w analytically, so numerical diffusion\n'
+                         'never touches the background stratification. total\n'
+                         'advects background plus perturbation together, as the\n'
+                         '2021 mimetic GCCOM did with the full temperature field:\n'
+                         'the same scheme then diffuses the stratification itself.')
+    ap.add_argument('--advscheme', default='minmod',
+                    choices=['upwind1', 'upwind2', 'minmod'],
+                    help='face interpolation for the advected field. upwind1 is first\n'
+                         'order (what the 2021 code used); upwind2 is second order but\n'
+                         'overshoots at a front; minmod is second order and monotone.')
     ap.add_argument('--buoy', default='logical', choices=['logical', 'energy'],
                     help='buoyancy coupling. logical = MOLE interpolD2D in logical\n'
                          'space (original). energy = the exact adjoint of Ic_z in the\n'
                          'physical-area inner product, so the w<->b exchange conserves\n'
                          'discrete energy on non-uniform cells. Ablation: with --N 0 the\n'
                          'topographic instability vanishes, so it lives in this coupling.')
+    ap.add_argument('--lslr', type=float, default=None,
+                    help='sponge width at the RIGHT edge as a fraction of Lx, if it\n'
+                         'should differ from --lsl. On the Monterey transect the slope\n'
+                         'sits at x = 3.5-4.5 km, so --lsl 0.30 puts the generation\n'
+                         'region inside the right sponge and damps exactly what is\n'
+                         'being studied.')
+    ap.add_argument('--forceside', default='both', choices=['both', 'left', 'right'],
+                    help='which sponge imposes the barotropic tide. The other one\n'
+                         'then relaxes toward zero, i.e. absorbs. both (the default,\n'
+                         'and what the uniform-depth benchmark wants) drives the\n'
+                         'domain from each end; on a shelf that forces a through-flow\n'
+                         'and clamps the shallow boundary instead of letting it\n'
+                         'respond. For a transect that shoals to the right, use left.')
     ap.add_argument('--btmode', default='uniform', choices=['uniform', 'transport'],
                     help='barotropic forcing. uniform imposes the same velocity\n'
                          'everywhere, which is right only where the depth is nearly\n'
@@ -553,6 +759,14 @@ def main():
         Nb = float(np.interp(-0.5 * D0, ztab, Ntab))       # mid-depth reference
     om = g.omega if g.omega else g.ratio * NBV
     T = 2 * np.pi / om
+    if g.lock > 0:
+        # no forcing period exists here: the clock comes from --tend and --dt
+        T = g.tend if g.tend else 10.0
+        om = 2 * np.pi / T
+        g.u0 = 0.0
+        g.nper = 1
+        if g.dt:
+            g.spp = max(int(round(T / g.dt)), 1)
     _ratio = min(om / Nb, 0.999999) if Nb > 0 else g.ratio
     phi_nh = np.degrees(np.arctan(np.sqrt(_ratio**2 / (1 - _ratio**2))))
     phi_h = np.degrees(np.arctan(_ratio))
@@ -570,8 +784,12 @@ def main():
             return
         _sl_rot = np.sqrt((om**2 - fcor**2) / max(Nb**2 - om**2, 1e-30))
         phi_nh = np.degrees(np.arctan(_sl_rot))
-    print(f"  theory: nonhydrostatic {phi_nh:.2f} deg (Eq.30)   "
-          f"hydrostatic {phi_h:.2f} deg (Eq.31)")
+    if g.lock > 0:
+        print(f"  lock release: no forcing, no stratification; the beam-angle "
+              f"diagnostics below do not apply")
+    else:
+        print(f"  theory: nonhydrostatic {phi_nh:.2f} deg (Eq.30)   "
+              f"hydrostatic {phi_h:.2f} deg (Eq.31)")
     if fcor:
         print(f"  rotation: f = {fcor:.4e} 1/s (f/omega = {abs(fcor)/om:.2f}); "
               f"the beam is {100*(1 - np.sqrt(1 - (fcor/om)**2)):.0f}% shallower "
@@ -603,6 +821,8 @@ def main():
     bounce = D0 / np.tan(np.radians(phi_nh))
     if g.win is None:
         g.win = [max(0.15 * bounce, 3 * LX / g.nx), min(0.70 * bounce, 0.45 * LX)]
+        if g.lock > 0:
+            g.win = [0.0, 1.0]
         print(f"  window: auto [{g.win[0]:.0f}, {g.win[1]:.0f}] m "
               f"(bounce = {bounce:.0f} m; keeps the fit inside the first bounce)")
     else:
@@ -674,7 +894,7 @@ def main():
         if use_cache:
             _atomic_savez(gpath, X=X, Z=Z)
 
-    ok = grid_diag(X, Z, g.nx, g.nz, phi_nh)
+    ok = grid_diag(X, Z, g.nx, g.nz, phi_nh, g.lock > 0)
     if g.gridonly:
         if oc is not None: oc.exit()
         print("\n  (--gridonly: stopping here)\n")
@@ -743,8 +963,20 @@ def main():
     assert xu.size == nu_ and xw.size == nw_, "face coordinate ordering mismatch"
 
     Lsl = g.lsl * LX
-    slu = np.exp(-4 * np.minimum(np.abs(xu + LX/2), np.abs(xu - LX/2)) / Lsl)
-    slw = np.exp(-4 * np.minimum(np.abs(xw + LX/2), np.abs(xw - LX/2)) / Lsl)
+    # Sponge widths can differ between the ends. On a shelf transect the slope
+    # is near one edge, and a sponge wide enough to absorb properly at the deep
+    # end will otherwise swallow the generation region at the shallow one.
+    Lslr = g.lslr * LX if g.lslr else Lsl
+    slu = np.where(xu < 0,
+                   np.exp(-4 * np.abs(xu + LX/2) / Lsl),
+                   np.exp(-4 * np.abs(xu - LX/2) / Lslr))
+    slw = np.where(xw < 0,
+                   np.exp(-4 * np.abs(xw + LX/2) / Lsl),
+                   np.exp(-4 * np.abs(xw - LX/2) / Lslr))
+    if g.lslr:
+        print(f"  [{el()}] sponges: left {Lsl:.0f} m ({g.lsl:g} Lx), "
+              f"right {Lslr:.0f} m ({g.lslr:g} Lx); right sponge starts at "
+              f"x = {LX/2 - Lslr:.0f} m")
 
     Ic_z = Ic[nu_:, :].tocsr()
     Idf_w = Idf[:, nu_:].tocsr()
@@ -1198,6 +1430,23 @@ def main():
             r_bed = max(r_bed, np.abs(ww[tgt] - rat*0.5*(uu[s1] + uu[s2])).max())
         return r_div/scale, r_bed/(np.abs(uu).max() + 1e-300)
 
+    if g.lock > 0:
+        # Dense fluid on the left, light on the right, split at x = 0. The jump
+        # in buoyancy across the lock is g', so the halves are -g'/2 and +g'/2.
+        _xcl = np.zeros((n + 2, m + 2))
+        _xcl[1:-1, 1:-1] = 0.25 * (XM[:-1, :-1] + XM[1:, :-1] + XM[:-1, 1:] + XM[1:, 1:])
+        _xcl[0, :] = _xcl[1, :]
+        _xcl[-1, :] = _xcl[-2, :]
+        _xcl[:, 0] = _xcl[:, 1]
+        _xcl[:, -1] = _xcl[:, -2]
+        b = np.where(_xcl.ravel() < 0.0, -0.5 * g.lock, 0.5 * g.lock)
+        slu = np.zeros_like(slu)
+        slw = np.zeros_like(slw)
+        _ub = np.sqrt(g.lock * D0)
+        print(f"  [{el()}] lock release: g' = {g.lock:g} m/s^2, H = {D0:g} m, "
+              f"sqrt(g'H) = {_ub:.4f} m/s")
+        print(f"  [{el()}] expected front speed {0.5 * _ub:.4f} m/s "
+              f"(Fr = 0.5 on sqrt(g'H) = 1/sqrt(2) on sqrt(g'H/2))")
     if g.noise > 0:
         _rng = np.random.default_rng(1)
         u = g.noise * _rng.standard_normal(nu_)
@@ -1222,6 +1471,14 @@ def main():
         print(f"  [{el()}] blow-up threshold {ulim:.2e} = 50x the initial max|u| "
               f"{_u0max:.2e}")
     # Shape of the barotropic forcing across the domain.
+    # Which end drives. The sponge target is u_bc on the forcing side and zero
+    # on the other, so the far end absorbs rather than being driven.
+    _fside = 1.0
+    if g.forceside != 'both':
+        _fside = (xu < 0).astype(float) if g.forceside == 'left' else (xu > 0).astype(float)
+        _nf = int((_fside * (slu > 0.01)).sum())
+        print(f"  [{el()}] barotropic tide imposed on the {g.forceside} sponge only "
+              f"({_nf} u-faces); the other end relaxes toward zero")
     _btshape = 1.0
     if g.btmode == 'transport':
         _br2 = 0 if ZM[0, :].mean() < ZM[-1, :].mean() else -1
@@ -1242,6 +1499,18 @@ def main():
     if fcor:
         print(f"  [{el()}] rotation: f*dt = {fcor*dt:.4e} rad per step, "
               f"advanced exactly")
+    _D_adv = D
+    _met = logical_metrics(XM, ZM, np) if g.advect == 'full' else None
+    _zcb = np.zeros((n + 2, m + 2))
+    _zcb[1:-1, 1:-1] = 0.25*(ZM[:-1, :-1] + ZM[1:, :-1] + ZM[:-1, 1:] + ZM[1:, 1:])
+    _zcb[0, :] = _zcb[1, :]
+    _zcb[-1, :] = _zcb[-2, :]
+    _zcb[:, 0] = _zcb[:, 1]
+    _zcb[:, -1] = _zcb[:, -2]
+    _Bbg = -(N2c * _zcb.ravel()) if g.advbg == 'total' else 0.0
+    _ic = np.zeros((n + 2, m + 2))
+    _ic[1:-1, 1:-1] = 1.0
+    _int_c = _ic.ravel()
     _fr_every = max(int(round(g.spp / max(g.framerate, 1e-9))), 1) if g.frames else 0
     _fr_n = 0
     if g.frames:
@@ -1302,10 +1571,18 @@ def main():
         xp = cp
         _toG = lambda M: csp.csr_matrix(sp.csr_matrix(M, dtype=np.float64))
         _Iz, _G, _Iw, _Iu, _R = [_toG(M) for M in (_Iz, _G, _Iw, _Iu, _R)]
+        _D_adv = _toG(_D_adv)
+        if _met is not None:
+            _met = {k: tuple(cp.asarray(a) for a in v) for k, v in _met.items()}
+        _int_c = cp.asarray(_int_c)
+        if not np.isscalar(_Bbg):
+            _Bbg = cp.asarray(_Bbg)
         u, w, b, gp, acc, v = [cp.asarray(a) for a in (u, w, b, gp, acc, v)]
         _slu, _slw = cp.asarray(slu), cp.asarray(slw)
         if not np.isscalar(_btshape):
             _btshape = cp.asarray(_btshape)
+        if not np.isscalar(_fside):
+            _fside = cp.asarray(_fside)
         if not np.isscalar(N2c):
             N2c = cp.asarray(N2c)
         if g.probe:
@@ -1331,6 +1608,9 @@ def main():
               f"      Use --spp {max(_need, g.spp * 2)} or more (N_max*dt < 1), or\n"
               f"      --forcegrid to run anyway. ***\n")
         return
+    _xf0 = 0.0
+    _t0f = 0.0
+    _ftrack = []
     _tsolve = 0.0
     t0 = time.time()
     beat(f"time loop: {nt} steps", force=True)
@@ -1343,14 +1623,17 @@ def main():
         # removes most of that kick. --ramp 0 reproduces the old behaviour.
         _rt = g.ramp * T
         _rf = 1.0 if (_rt <= 0 or t >= _rt) else 0.5 * (1.0 - np.cos(np.pi * t / _rt))
-        ubc = g.u0 * _rf * np.sin(om * t) * _btshape
+        ubc = g.u0 * _rf * np.sin(om * t) * _btshape * _fside
         if fcor:
             _ur = u * _cf + v * _sf
             v = -u * _sf + v * _cf
             u = _ur
             v = v - dt * v / g.taus * _slu          # the sponge damps v too
-        us = u - dt * gp[:nu_] - dt * (u - ubc) / g.taus * _slu
-        ws = w - dt * gp[nu_:] + dt * (_Iz @ b) - dt * w / g.taus * _slw
+        _au = _aw = 0.0
+        if g.advect == 'full':
+            _au, _aw = advect_momentum(u, w, _met, n, m, g.advscheme, xp)
+        us = u - dt * gp[:nu_] - dt * (u - ubc) / g.taus * _slu - dt * _au
+        ws = w - dt * gp[nu_:] + dt * (_Iz @ b) - dt * w / g.taus * _slw - dt * _aw
         usw = xp.concatenate([us, ws])
         if Rfused is not None or g.device == 'gpu':
             rhs = (_R @ usw) / dt
@@ -1368,7 +1651,25 @@ def main():
             w = apply_bed(u, w)
         gp = gp + gphi
         wc = _Iw @ w
-        b = b - dt * N2c * wc
+        # The background stratification contributes N^2 w; the perturbation is
+        # advected by the flow. Linear runs keep only the first term, which is
+        # what every verified result in this repository used.
+        if g.advect in ('scalar', 'full'):
+            # The boundary rows of D are not cell balances, so the advective
+            # tendency is applied to interior cells only; boundary values of b
+            # keep their own treatment.
+            if g.advbg == 'total':
+                # advect background + perturbation together: the background is
+                # B(z) = -N^2 z, so u.grad(B) reproduces N^2 w exactly in the
+                # continuum -- any difference is the scheme's own diffusion
+                # acting on the stratification
+                _adv = advect_centred(b + _Bbg, u, w, _D_adv, n, m, nc, g.advscheme, xp)
+                b = b - dt * (_adv * _int_c)
+            else:
+                _adv = advect_centred(b, u, w, _D_adv, n, m, nc, g.advscheme, xp)
+                b = b - dt * (N2c * wc + _adv * _int_c)
+        else:
+            b = b - dt * N2c * wc
         if _fr_every and it % _fr_every == 0 and t / T >= g.framefrom:
             _uc = _h(_Iu @ u).astype(np.float32)
             _wcf = _h(wc).astype(np.float32)
@@ -1439,6 +1740,24 @@ def main():
         if it % max(1, nt // 5) == 0:
             # A norm cannot distinguish a growing mode from a single runaway
             # cell, so report where the maximum sits as well as its size.
+            if g.lock > 0:
+                # The front is the furthest point the dense fluid has reached in
+                # the bottom half: the leading edge of b < 0 along the bed.
+                _bb = _h(b).reshape(n + 2, m + 2)
+                _dense = _bb[1:1 + max(n // 4, 1), 1:-1] < 0.0
+                _cols = np.where(_dense.any(axis=0))[0]
+                if _cols.size:
+                    _xf = float(_xcl[1, 1:-1][_cols.max()])
+                    # instantaneous speed between samples: an average taken from
+                    # release includes the acceleration phase and reads low
+                    _spd = (_xf - _xf0) / max(t - _t0f, 1e-30)
+                    _avg = _xf / max(t, 1e-30)
+                    print(f"    [{el()}] t={t:7.2f}  front x = {_xf:+8.4f} m  "
+                          f"speed {_spd:.4f} m/s  Fr = {_spd/_ub*np.sqrt(2):.4f}  "
+                          f"(since release {_avg/_ub*np.sqrt(2):.4f})", flush=True)
+                    _xf0 = _xf
+                    _t0f = t
+                    _ftrack.append((t, _xf))
             _iu = int(xp.argmax(xp.abs(u)))
             print(f"    [{el()}] t/T={t/T:5.1f}  max|u|={float(xp.abs(u).max()):.3e} "
                   f"at (x={xu[_iu]:8.0f}, z={zu[_iu]:7.1f})  "
@@ -1459,6 +1778,19 @@ def main():
           f"solve {1e3*_tsolve/max(nt,1):.1f}, everything else "
           f"{1e3*(_tl-_tsolve)/max(nt,1):.1f} ms/step)")
     rms = np.sqrt(acc / max(nacc, 1)).reshape(n + 2, m + 2)
+    if g.lock > 0 and len(_ftrack) >= 3:
+        # Fit the steady part: drop the first third, where the front is still
+        # accelerating out of the lock, and the differences between samples,
+        # which are quantised by the cell width.
+        _fa = np.array(_ftrack)
+        _k = max(len(_fa) // 3, 1)
+        _sl = np.polyfit(_fa[_k:, 0], _fa[_k:, 1], 1)[0]
+        _res = np.abs(_fa[_k:, 1] - np.polyval(np.polyfit(_fa[_k:, 0], _fa[_k:, 1], 1),
+                                               _fa[_k:, 0])).max()
+        print(f"\n  LOCK RELEASE  front speed {_sl:.5f} m/s over t = "
+              f"{_fa[_k,0]:.1f}-{_fa[-1,0]:.1f} s (fit residual {_res*1e3:.2f} mm)")
+        print(f"                Fr = {_sl/_ub*np.sqrt(2):.4f}   "
+              f"theory 1/sqrt(2) = 0.7071   mimetic GCCOM 2021: 0.705 at 401x6x101")
     if g.probe:
         _growth_report(_hist)
     if g.u0 == 0:
