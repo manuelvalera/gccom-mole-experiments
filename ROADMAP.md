@@ -138,7 +138,15 @@ versus centred scalar advection (a bore is exactly where this shows, so make it
 a flag); explicit viscosity and diffusivity (`--nu`, `--kappa`) both to match
 Walter's 1e-4 m²/s and as a fallback.
 
-## Stage 2 — mode-1 forcing
+## Stage 2 — mode-1 forcing — DONE
+
+`--mode1 A` imposes the wave in the offshore sponge with the vertical structure
+and speed from a built-in mode solver. Propagated across a flat domain it keeps
+the analytic structure (mean difference 0.000 against |sin(pi z/H)|) and travels
+at 0.161 m/s against 0.153, both independent estimates agreeing, phase advancing
+at exactly omega (`phase_speed.py`).
+
+## Stage 2 as originally planned
 
 Impose the mode-1 internal wave at the offshore boundary using the vertical
 structure from `mode1.py`. For this stratification: **c₁ = 0.209 m/s, λ = 9.4 km**,
@@ -146,7 +154,27 @@ and ξ ≈ 2 on the real slope (s ≈ 0.04) needs **a ≈ 3.7 m**. ξ ≈ 0.2 wo
 370 m, so the canonical case requires a gentler synthetic slope, as in the paper.
 Verify by propagating the mode across a flat domain at the computed speed.
 
-## Stage 3 — the comparison
+## Stage 3 — the comparison — NON-CANONICAL SIGNATURE REPRODUCED
+
+See README section 6. Summary of what the path taught:
+
+- Constant scalar diffusivity (kappa = 1e-4) was needed to survive the run-up at
+  768, 1536 and 3981 cells across, and it produced the CANONICAL shape. The
+  run-up overturns the column (N^2 to -1e-3 s^-2); `--kconv` mixes only where
+  N^2 < 0, lets kappa go to zero as in Walter et al., and the non-canonical
+  abrupt warm front appears.
+- Resolution alone does not cure it: at dx = 5 m, dz = 1 m (their grid) the run
+  still dies at t/T = 3.18 with constant kappa. Convective instability grows at
+  every scale.
+- Open: the full run at their grid with kappa = 0 and --kconv, from scratch;
+  event duration (4-5 h against 6-20 h) and range (0.28 against ~0.5 degC),
+  probably amplitude; the 15 m site is 177 m from the domain edge because the
+  transect is cut at 10 m, so a wetting-and-drying shoreline is not modelled.
+- Cost: kconv = 0.01 needs ~141 sub-steps per step at 768x151 because the
+  thinnest cells are stiff. An implicit tridiagonal solve per column would
+  remove that and is the natural next change.
+
+## Stage 3 as originally planned
 
 Extend the transect offshore to 20 km, run both slopes for six tidal periods,
 and reproduce: the cross-shelf temperature snapshots, virtual thermistors at

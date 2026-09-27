@@ -223,6 +223,44 @@ def main():
         order = '' if prev is None else f"   order {np.log(prev / e) / np.log(2):.2f}"
         print(f"     {mm:4d}x{nn:<4d} max error {e:.3e}{order}")
         prev = e
+    print('\n5. VISCOUS OPERATOR (Laplacian of a known field)')
+    # u = sin(2 pi x / L) sin(pi z / H): Laplacian is -(k^2 + l^2) u, exactly
+    L, H = 1.0, 0.5
+    print("   uniform grid:")
+    prev = None
+    for mm, nn in ((64, 32), (128, 64), (256, 128)):
+        X, Z = uniform_grid(L, H, mm, nn)
+        met = mod.logical_metrics(X, Z, np)
+        xu = 0.5 * (X[:-1, :] + X[1:, :])
+        zu = 0.5 * (Z[:-1, :] + Z[1:, :])
+        k, l = 2 * np.pi / L, np.pi / H
+        F = np.sin(k * xu) * np.sin(l * (zu + H))
+        lap = mod.viscous(F, 'u', met, None, np)
+        exact = -(k**2 + l**2) * F
+        e = np.abs(lap[2:-2, 2:-2] - exact[2:-2, 2:-2]).max() / np.abs(exact).max()
+        order = '' if prev is None else f"   order {np.log(prev / e) / np.log(2):.2f}"
+        print(f"     {mm:4d}x{nn:<4d} relative error {e:.3e}{order}")
+        prev = e
+
+    print("   smoothly stretched grid:")
+    prev = None
+    for mm, nn in ((64, 32), (128, 64), (256, 128)):
+        tt = np.linspace(0, 1, mm + 1)
+        xs = L * (0.7 * tt + 0.3 * tt ** 2)
+        ss = np.linspace(0, 1, nn + 1)
+        zs = -H * (1 - (0.6 * ss + 0.4 * ss ** 2))
+        X, Z = np.meshgrid(xs, zs)
+        met = mod.logical_metrics(X, Z, np)
+        xu = 0.5 * (X[:-1, :] + X[1:, :])
+        zu = 0.5 * (Z[:-1, :] + Z[1:, :])
+        k, l = 2 * np.pi / L, np.pi / H
+        F = np.sin(k * xu) * np.sin(l * (zu + H))
+        lap = mod.viscous(F, 'u', met, None, np)
+        exact = -(k**2 + l**2) * F
+        e = np.abs(lap[3:-3, 3:-3] - exact[3:-3, 3:-3]).max() / np.abs(exact).max()
+        order = '' if prev is None else f"   order {np.log(prev / e) / np.log(2):.2f}"
+        print(f"     {mm:4d}x{nn:<4d} relative error {e:.3e}{order}")
+        prev = e
     oc.exit()
 
 

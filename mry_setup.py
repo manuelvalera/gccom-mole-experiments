@@ -160,6 +160,13 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--bathy', default='narrow_bathy_100m.csv')
     ap.add_argument('--out', default=os.path.join('grids', 'mryshelf'))
+    ap.add_argument('--extend', type=float, default=0.0,
+                    help='total transect length in km after extending the OFFSHORE '
+                         'end at its deepest depth. Walter et al. (2012) use a 20 km '
+                         'domain, 80 m deep, with the shelf at the shoreward end; '
+                         'the measured transect is 10.1 km, so 20 here reproduces '
+                         'their geometry and leaves room for the incoming wave to '
+                         'develop before it reaches the slope.')
     ap.add_argument('--trim', type=float, default=0.0,
                     help='drop the part of the transect shallower than this depth '
                          '(m). The shallow end is where the cells are worst: the '
@@ -173,6 +180,30 @@ def main():
     g = ap.parse_args()
 
     s, h = read_transect(g.bathy)
+    if g.extend > 0:
+        # Which end is deep? Extend that one, at its own depth, with a short
+        # cosine join so the added section does not start with a kink.
+        total = g.extend * 1000.0
+        have = s.max() - s.min()
+        if total <= have:
+            raise SystemExit(f'--extend {g.extend} km is shorter than the transect '
+                             f'({have/1000:.1f} km)')
+        add_len = total - have
+        deep_left = h[0] > h[-1]
+        step = float(np.median(np.abs(np.diff(s))))
+        npad = max(int(round(add_len / step)), 2)
+        pad_s = np.arange(1, npad + 1) * step
+        hdeep = h[0] if deep_left else h[-1]
+        pad_h = np.full(npad, hdeep)
+        if deep_left:
+            s = np.concatenate([s.min() - pad_s[::-1], s])
+            h = np.concatenate([pad_h, h])
+        else:
+            s = np.concatenate([s, s.max() + pad_s])
+            h = np.concatenate([h, pad_h])
+        print(f"extended the {'offshore (left)' if deep_left else 'offshore (right)'} "
+              f"end by {add_len/1000:.1f} km at {hdeep:.1f} m -> "
+              f"{(s.max()-s.min())/1000:.1f} km total")
     if g.trim > 0:
         keep = h >= g.trim
         if keep.sum() < 10:

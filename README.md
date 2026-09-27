@@ -9,13 +9,21 @@ testbed for reviving the mimetic formulation of the General Curvilinear Coastal
 Ocean Model (GCCOM), and its validation target is the internal-wave-beam
 benchmark of Garcia et al. (2019), *J. Comput. Sci.* 30:143–156, §3.3.
 
-The solver (`iwbcurv.py`) is **linear**: there is no advection term, so every
-result scales with the forcing amplitude.
+The solver (`iwbcurv.py`) was built linear and verified that way first; every
+section below marked *linear* used `--advect none`, which remains the default
+and is bit-identical to those results. Nonlinear advection, rotation, viscosity
+and mode-1 boundary forcing were added afterwards, each verified in isolation,
+and are used in the last two sections to reproduce the nearshore internal bores
+of Walter et al. (2012) on the measured Monterey Bay transect.
 
-## Status (v1.2.0)
+## Status (v1.3.0, in progress)
 
 | | status |
 |---|---|
+| Nonlinear advection | **Verified.** Machine-precision exact cases; second order on stretched grids; lock release Fr = 0.699 against 0.705 published (§5) |
+| Rotation | **Verified.** Rotating seiche matches the exact dispersion relation at every latitude, same error as without rotation |
+| Nonlinear internal-wave beam | **Runs.** 25 periods, steady, 53.55° against 53.13° — the case the 2021 mimetic GCCOM could not sustain |
+| Nearshore bores, Monterey Bay | **Non-canonical signature reproduced** at the 15 m isobath, with convective adjustment and zero background diffusivity (§6) |
 | Core discretization | **Verified.** Second order against the exact seiche dispersion relation |
 | Dynamical similarity | **Verified.** Two domains at different depths give identical dimensionless results |
 | Lateral boundary parameter `alpha` | **Fixed.** The old default dominated the error; now `1e-6` |
@@ -152,14 +160,99 @@ SuperLU at the same 3e-16 residual, while CuPy's CPU-factor/GPU-solve route is
 30× *slower* and its single-precision variant loses too much accuracy to use.
 A grid/operator cache removes the ~3 min of Octave grid generation per run.
 
+## 5. Nonlinear advection
+
+Flux form for buoyancy through the mimetic divergence; advective form for
+momentum using **contravariant** velocities built from the grid metrics, so the
+upwind direction is the one the flow takes through the cell. `--advscheme`
+selects `upwind1` (first order, the accuracy of the 2021 one-sided operators),
+`upwind2`, `minmod` or `vanleer`. `advect_test.py` checks the operators alone:
+exact to 1e-15 on uniform flow, `u = x` and solid-body rotation, and second
+order (1.83 → 1.97) on a smoothly stretched grid.
+
+The lock release (`lock_test.ps1`) reproduces the configuration of the 2021
+mimetic GCCOM — 0.8 × 0.0656 m, g' = 0.0224 m/s² — and resolves the
+Kelvin–Helmholtz billows along the interface:
+
+| scheme, 401×101 | front Fr | vs theory 0.7071 |
+|---|---|---|
+| upwind1 | 0.6741 | −4.7% |
+| minmod | 0.6742 | −4.7% |
+| upwind2 | **0.6991** | −1.1% |
+| mimetic GCCOM, 2021 | 0.705 | −0.3% |
+
+First-order advection costs 3.7% here; minmod lands on it because at a genuine
+discontinuity the limiter reverts to first order. With `--advect full` the beam
+of §3 runs steadily for 25 periods at 53.55° — the experiment §4.2.3 of the
+2021 dissertation reports as failing. First-order advection alone does not
+reproduce that failure here, which points at the other structural difference:
+this solver advects only the perturbation and adds the background
+stratification analytically, while the 2021 code advected the full temperature
+field.
+
+## 6. Nearshore internal bores in southern Monterey Bay
+
+Target: Figure 10 of Walter, Woodson, Arthur, Fringer & Monismith (2012),
+*J. Geophys. Res.* 117, C07017 — virtual thermistors at 2, 4 and 6 m above bed
+at the 15 m isobath, where a shoaling internal tide arrives as cold bottom
+surges. They separate a *canonical* shape (abrupt cold front, gradual warming)
+from the *non-canonical* one they observed (sharp drop, continued slow cooling,
+then an abrupt warm front), and attribute the difference to the internal
+Iribarren number.
+
+**Setup.** The measured transect extended offshore to 20 km (`mry_setup.py
+--extend 20 --trim 10`), measured N(z), M2 with rotation at 36.8°N, a mode-1
+wave imposed at the offshore boundary (`--mode1 3.7`; c₁ = 0.236 m/s,
+λ = 10.5 km, ξ ≈ 2), ν = 1e-4 m²/s as in their SUNTANS runs, and a virtual
+mooring sampled every step (`--moor 15 2 4 6`).
+
+**The wave converts from a linear tide to bottom-trapped surges as it shoals.**
+The ratio of the 2 mab to 6 mab temperature range crosses 1 between the 80 and
+75 m isobaths and climbs to 1.68 at 60 m. The thermistor record at 60 m is
+identical at 768×151 and 1536×301.
+
+| isobath | 80 m | 75 m | 70 m | 65 m | 60 m |
+|---|---|---|---|---|---|
+| range 2 mab / 6 mab | 0.87 | 1.04 | 1.11 | 1.28 | 1.68 |
+
+**The shape at 15 m depends on how mixing is represented.** With a constant
+scalar diffusivity κ = 1e-4 the events are canonical — sharp onset, smooth
+recovery. Every attempt to lower κ failed at the same moment: the surge
+overturns the column at the run-up (N² reaches −1e-3 s⁻² over hundreds of
+cells) and the overturn grows at √|N²| with nothing to stop it. Walter et al.
+measured O(1 m) overturns at exactly this point. Convective adjustment
+(`--kconv 0.01`: vertical diffusion only where N² < 0) lets the background go
+to **zero, as in their setup**, and the record changes character: sharp drop,
+continued cooling with small internal waves riding on it, then an abrupt warm
+front — their non-canonical description almost word for word. The constant κ
+had been smearing the warm front.
+
+| | constant κ = 1e-4 | κ = 0, convective adjustment |
+|---|---|---|
+| 15 m, 2 mab range | 0.32 °C | 0.28 °C |
+| 4 / 6 mab | 0.14 / 0.05 °C | 0.05 / 0.01 °C |
+| warm recovery | gradual, hours | **abrupt** |
+
+What still differs: events last 4–5 h against their 6–20 h, and the 2 mab range
+is 0.28 against ~0.5 °C. Both plausibly track the amplitude, which is set here
+from ξ rather than fitted to their temperature drop. The run at their resolution
+(dx = 5 m, dz = 1 m) is in progress.
+
+Things learned the hard way, all now diagnosed by the solver itself:
+`alpha` scales as 1/dx² and must change with the domain size; the shoreward
+sponge must not cover the slope or the mooring; frames 47 minutes apart cannot
+show a five-minute front, hence `--moor`; and explicit diffusion is limited by
+the thinnest cells, not the typical ones, hence the metric-based stability
+number and `--nusub`.
+
 ## MOLE fixes arising from this work
 
 | issue | pull request | subject |
 |---|---|---|
-| csrc-sdsu/mole#453 | #466 | `GI13` index map — `grad3DCurv` did not converge on curvilinear grids |
-| csrc-sdsu/mole#454 | #468 | warn when the grid handed to the curvilinear operators is left-handed |
-| csrc-sdsu/mole#455 | #469 | `ttm` initial guess — elliptic grids came out folded |
-| csrc-sdsu/mole#456 | — | orientation guard for 3-D and vanishing Jacobians |
+| csrc-sdsu/mole#453 | #466, merged | `GI13` index map — `grad3DCurv` did not converge on curvilinear grids |
+| csrc-sdsu/mole#454 | #468, merged | warn when the grid handed to the curvilinear operators is left-handed |
+| csrc-sdsu/mole#455 | #469, merged | `ttm` initial guess — elliptic grids came out folded |
+| csrc-sdsu/mole#456 | #470 | orientation guard for 3-D, vanishing Jacobians, and the Legacy jacobians |
 
 The 2-D results here use **stock MOLE**: none of those code paths is exercised
 by `iwbcurv.py`. The buoyancy-coupling defect in §2 is not in a MOLE operator —
@@ -168,7 +261,7 @@ together at a sloping boundary.
 
 ## Reproducing
 
-MOLE at commit `1d009d14` (the `mole` submodule), GNU Octave 8.4, Python
+MOLE at upstream `main` with #466, #468 and #469 (the `mole` submodule), GNU Octave 8.4, Python
 3.11–3.12, numpy, scipy, oct2py; optionally pypardiso, and cupy + nvmath-python
 for the GPU path.
 
@@ -189,6 +282,15 @@ python centroid_track.py val-npz
 | `--solver pardiso` | multithreaded CPU solver (`MKL_NUM_THREADS=4` was fastest here) |
 | `--u0 0 --noise A --probe` | free run and growth-rate report — any growth is an instability |
 | `--cache DIR`, `--no-cache` | grid/operator cache |
+| `--advect none\|scalar\|full`, `--advscheme` | nonlinear advection (§5) |
+| `--lat`, `--fcor` | rotation |
+| `--nu`, `--kappa`, `--nusub` | viscosity and diffusivity, sub-cycled against the thinnest cells |
+| `--kconv` | convective adjustment where N² < 0 (§6) |
+| `--mode1 A`, `--lock G` | mode-1 boundary forcing; lock release |
+| `--moor ISOBATH MAB...` | virtual mooring sampled every step |
+| `--savestate T`, `--restart FILE` | checkpoint and resume (resumes by time, so `--spp` may change) |
+| `--trace N`, `--checkevery N` | step-level diagnostics, including CFL and minimum N² |
+| `--frames DIR` | snapshots for `animate.py` |
 
 | study | scripts |
 |---|---|
@@ -199,10 +301,15 @@ python centroid_track.py val-npz
 | the instability | `reproducer.ps1`, `ablate.ps1`, `instab_test.ps1` |
 | similarity | `reflect_test.ps1` |
 | performance | `solver_bench.py`, `speed_check.ps1`, `gpu_check.ps1`, `gpu_bench.ps1` |
+| nonlinear operators | `advect_test.py`, `lock_test.ps1`, `beam_nonlinear.ps1` |
+| mode-1 forcing | `mode1.py`, `phase_speed.py` |
+| Monterey bores | `mry_setup.py`, `mry_bore.ps1`, `mry_fig10.ps1`, `thermistors.py` |
+| animations | `animate.py`, `animate3.ps1`, `animate_web.ps1` |
 
 Saved fields (`*.npz`) and the cache are not tracked; the scripts regenerate
-them. Run logs are included. Code style: one statement per line, see
-`STYLE.md` and `style_check.py`.
+them. Run logs are included. `STYLE.md` and `style_check.py` describe the
+one-statement-per-line convention required for contributions to MOLE itself;
+it is not enforced on the scripts in this repository.
 
 ## Citation
 

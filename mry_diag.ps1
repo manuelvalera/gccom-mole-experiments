@@ -25,13 +25,11 @@
 #   logical     the OLD buoyancy coupling, for contrast
 #   coarse/fine resolution dependence, which the forced runs already suggest
 #
-# NOTE. The first attempt at this was undermined by three instrumentation bugs,
-# now fixed: --N 0 crashed in the theory-angle calculation; the blow-up
-# threshold was 50x the NOISE amplitude, while projecting noise onto a 115:1
-# grid starts four times above that, so runs were flagged as diverged when they
-# were not; and the probe box measured height above the domain's deepest point,
-# so over the sloping bed at x ~ 4 km it sat below the seabed and sampled the
-# wrong place. Delete mry-diag\ before rerunning.
+# A wider sponge is also worth a look: at the shallow end the domain is 8 m
+# deep, and the barotropic forcing is imposed as a uniform velocity rather than
+# a uniform transport, so the sponge is pulling the shallow end toward a
+# current that does not conserve mass. That is a configuration error rather
+# than a solver bug, and it is the next thing to fix if these come back clean.
 
 if (-not $env:MOLE_SRC) { Write-Error "set `$env:MOLE_SRC"; exit 1 }
 $Out = "mry-diag"
@@ -58,9 +56,7 @@ function Go([string]$tag, [string[]]$a) {
       ForEach-Object { Write-Host "   $($_.Line.TrimEnd())" }
 }
 
-Go "base"      @("--nx", "768", "--nz", "151", "--nprofile", "mry_N.txt", "--buoy", "energy")
-Go "transport" @("--nx", "768", "--nz", "151", "--nprofile", "mry_N.txt", "--buoy", "energy",
-                 "--btmode", "transport")
+Go "base"    @("--nx", "768", "--nz", "151", "--nprofile", "mry_N.txt", "--buoy", "energy")
 Go "scalarN" @("--nx", "768", "--nz", "151", "--N", "4e-3", "--buoy", "energy")
 Go "N0"      @("--nx", "768", "--nz", "151", "--N", "0", "--buoy", "energy")
 Go "logical" @("--nx", "768", "--nz", "151", "--nprofile", "mry_N.txt", "--buoy", "logical")
