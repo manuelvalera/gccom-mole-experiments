@@ -23,7 +23,7 @@ of Walter et al. (2012) on the measured Monterey Bay transect.
 | Nonlinear advection | **Verified.** Machine-precision exact cases; second order on stretched grids; lock release Fr = 0.699 against 0.705 published (§5) |
 | Rotation | **Verified.** Rotating seiche matches the exact dispersion relation at every latitude, same error as without rotation |
 | Nonlinear internal-wave beam | **Runs.** 25 periods, steady, 53.55° against 53.13° — the case the 2021 mimetic GCCOM could not sustain |
-| Nearshore bores, Monterey Bay | **Non-canonical signature reproduced** at the 15 m isobath, with convective adjustment and zero background diffusivity (§6) |
+| Nearshore bores, Monterey Bay | **Non-canonical signature reproduced** at the 15 m isobath at Walter et al.'s own resolution (dx = 5 m, dz = 1 m), on a sigma grid with zero background diffusivity and convective adjustment (§6) |
 | Core discretization | **Verified.** Second order against the exact seiche dispersion relation |
 | Dynamical similarity | **Verified.** Two domains at different depths give identical dimensionless results |
 | Lateral boundary parameter `alpha` | **Fixed.** The old default dominated the error; now `1e-6` |
@@ -204,7 +204,8 @@ Iribarren number.
 --extend 20 --trim 10`), measured N(z), M2 with rotation at 36.8°N, a mode-1
 wave imposed at the offshore boundary (`--mode1 3.7`; c₁ = 0.236 m/s,
 λ = 10.5 km, ξ ≈ 2), ν = 1e-4 m²/s as in their SUNTANS runs, and a virtual
-mooring sampled every step (`--moor 15 2 4 6`).
+mooring sampled every step (`--moor 15 2 4 6`). The grid is **sigma**
+(`--bt 0.01 --bb 0.01`): see "The grid" below for why that matters.
 
 **The wave converts from a linear tide to bottom-trapped surges as it shoals.**
 The ratio of the 2 mab to 6 mab temperature range crosses 1 between the 80 and
@@ -227,18 +228,45 @@ continued cooling with small internal waves riding on it, then an abrupt warm
 front — their non-canonical description almost word for word. The constant κ
 had been smearing the warm front.
 
-| | constant κ = 1e-4 | κ = 0, convective adjustment |
+On the sigma grid with κ = 0 and implicit convective adjustment
+(`--kconv 0.1`), the 15 m record is a near-rectangular pulse each period: sharp
+cold arrival, continued slow cooling, abrupt warm return.
+
+| 15 m isobath | 768×151 | 3981×89 (their dx, dz) |
 |---|---|---|
-| 15 m, 2 mab range | 0.32 °C | 0.28 °C |
-| 4 / 6 mab | 0.14 / 0.05 °C | 0.05 / 0.01 °C |
-| warm recovery | gradual, hours | **abrupt** |
+| 2 mab range | 0.202 °C | 0.215 °C |
+| 4 / 6 mab | 0.034 / 0.009 °C | 0.058 / 0.012 °C |
+| warm recovery | abrupt | abrupt |
 
-What still differs: events last 4–5 h against their 6–20 h, and the 2 mab range
-is 0.28 against ~0.5 °C. Both plausibly track the amplitude, which is set here
-from ξ rather than fitted to their temperature drop. The run at their resolution
-(dx = 5 m, dz = 1 m) is in progress.
+What still differs: the cold layer is thinner (they see cooling through the
+lower 10 m), the 2 mab range is 0.2 against ~0.5 °C, and events last 3–4 h
+against 6–20 h. All three point the same way, consistent with the amplitude
+being set from ξ rather than fitted to their temperature drop; an amplitude
+sweep on this configuration is next.
 
-Things learned the hard way, all now diagnosed by the solver itself:
+**The grid.** The TFI generator's position-dependent stretching, tuned for the
+ridge benchmark, puts different node distributions on the top and bottom
+boundaries so interior lines lean. On a 1000 m-deep ridge domain that is ~150 m
+of drift and harmless. On an 88 m-deep, 20 km shelf the same machinery drifts
+~490 m, and the cells were a median **64° from orthogonal offshore and 81–83° on
+the slope** — the solver's own `grid angle` line reported 5.8°–170.5° throughout.
+Several operators neglect cross-derivatives on the assumption of near-orthogonal
+cells, and every run-up failure sat where the skew was worst. With uniform
+stretching (`--bt 0.01 --bb 0.01`) the lines are vertical and the skew drops to a
+median 4–7° offshore and 17° on the slope; what remains beyond 9 km is the
+measured seabed itself steepening toward the 10 m contour, which terrain-following
+coordinates cannot avoid. On the skewed grid every run at 3981×89 died at the
+run-up; on the sigma grid the same configuration runs all eight periods. Results
+computed on the skewed mry20 grid earlier in this work should be read with that
+in mind.
+
+Convective adjustment is implicit — one tridiagonal solve per column per step —
+because strengths that keep up with an overturn (0.1–1 m²/s, the range ocean
+models use) would need hundreds to thousands of explicit sub-steps in the
+thinnest cells.
+
+Things learned the hard way, all now diagnosed by the solver itself: a grid
+generator validated on one geometry can be quietly wrong on another;
 `alpha` scales as 1/dx² and must change with the domain size; the shoreward
 sponge must not cover the slope or the mooring; frames 47 minutes apart cannot
 show a five-minute front, hence `--moor`; and explicit diffusion is limited by
@@ -285,7 +313,8 @@ python centroid_track.py val-npz
 | `--advect none\|scalar\|full`, `--advscheme` | nonlinear advection (§5) |
 | `--lat`, `--fcor` | rotation |
 | `--nu`, `--kappa`, `--nusub` | viscosity and diffusivity, sub-cycled against the thinnest cells |
-| `--kconv` | convective adjustment where N² < 0 (§6) |
+| `--kconv` | convective adjustment where N² < 0, implicit per column (§6) |
+| `--bt`, `--bb` | grid stretching; `0.01 0.01` gives a sigma grid, which the shelf needs |
 | `--mode1 A`, `--lock G` | mode-1 boundary forcing; lock release |
 | `--moor ISOBATH MAB...` | virtual mooring sampled every step |
 | `--savestate T`, `--restart FILE` | checkpoint and resume (resumes by time, so `--spp` may change) |
@@ -303,7 +332,7 @@ python centroid_track.py val-npz
 | performance | `solver_bench.py`, `speed_check.ps1`, `gpu_check.ps1`, `gpu_bench.ps1` |
 | nonlinear operators | `advect_test.py`, `lock_test.ps1`, `beam_nonlinear.ps1` |
 | mode-1 forcing | `mode1.py`, `phase_speed.py` |
-| Monterey bores | `mry_setup.py`, `mry_bore.ps1`, `mry_fig10.ps1`, `thermistors.py` |
+| Monterey bores | `mry_setup.py`, `mry_bore.ps1`, `mry_fig10.ps1`, `thermistors.py`, `snapzoom.py` |
 | animations | `animate.py`, `animate3.ps1`, `animate_web.ps1` |
 
 Saved fields (`*.npz`) and the cache are not tracked; the scripts regenerate

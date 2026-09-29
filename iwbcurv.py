@@ -527,6 +527,30 @@ def viscous(F, met_tag, met, axis_shape, xp):
     return out / J
 
 
+def tridiag_columns(a, bd, c, d, xp):
+    """Solve many tridiagonal systems at once, one per column.
+
+    a, bd, c, d are (n, m): sub-diagonal, diagonal, super-diagonal and right-hand
+    side for n unknowns in each of m columns (a[0] and c[-1] are ignored). The
+    Thomas algorithm, vectorised across columns, so the cost is n small array
+    operations regardless of how many columns there are.
+    """
+    n = d.shape[0]
+    cp_ = xp.empty_like(d)
+    dp_ = xp.empty_like(d)
+    cp_[0] = c[0] / bd[0]
+    dp_[0] = d[0] / bd[0]
+    for j in range(1, n):
+        den = bd[j] - a[j] * cp_[j - 1]
+        cp_[j] = c[j] / den
+        dp_[j] = (d[j] - a[j] * dp_[j - 1]) / den
+    x = xp.empty_like(d)
+    x[-1] = dp_[-1]
+    for j in range(n - 2, -1, -1):
+        x[j] = dp_[j] - cp_[j] * x[j + 1]
+    return x
+
+
 def pull(oc, nm):
     oc.eval(f"[ii,jj,vv]=find({nm}); sz=size({nm});")
     return sp.csr_matrix(
@@ -1720,11 +1744,13 @@ def main():
         _lv = np.zeros_like(_Bv)
         _lv[1:-1, :] = _Bvh[1:, :] + _Bvh[:-1, :]
         _lv = float((_lv / _cJ).max())
-        _nconv = max(int(np.ceil(g.kconv * (T / g.spp) * _lv / 0.4)), 1)
+        _nconv = 1
         _N2int = (N2c.reshape(n + 2, m + 2)[1:-1, 1:-1] if not np.isscalar(N2c)
                   else np.full((n, m), float(N2c)))
         print(f"  [{el()}] convection : kappa {g.kconv:g} m^2/s where N^2 < 0, "
-              f"{_nconv} sub-step(s) per step")
+              f"implicit in the vertical (one tridiagonal solve per column); "
+              f"explicit would need {max(int(np.ceil(g.kconv*(T/g.spp)*_lv/0.4)), 1)} "
+              f"sub-steps")
         _N2intd = _N2int
         _Bvhd = _Bvh
         _cJd = _cJ
@@ -1969,6 +1995,13 @@ def main():
     _tsolve = 0.0
     t0 = time.time()
     beat(f"time loop: {nt} steps", force=True)
+    # A fingerprint of the node coordinates. Two grids with the same size but
+    # different stretching -- the skewed and sigma versions of mry20 at
+    # 3981x89, say -- have identical array shapes, so a size check alone
+    # would let a state from one continue silently on the other.
+    import hashlib
+    _gridhash = hashlib.sha1(np.round(np.concatenate([XM.ravel(), ZM.ravel()]), 6)
+                             .tobytes()).hexdigest()[:16]
     _it0 = 1
     if g.restart:
         _st = np.load(g.restart)
@@ -1976,6 +2009,14 @@ def main():
             if _st[_nm4].shape != _h(_arr).shape:
                 raise SystemExit(f"--restart: {_nm4} has shape {_st[_nm4].shape}, this "
                                  f"run needs {_h(_arr).shape} -- different grid or flags")
+        if 'gridhash' not in _st.files:
+            raise SystemExit("--restart: this state file predates grid fingerprints, so "
+                             "it cannot be checked against the current grid; rerun to "
+                             "write a new one")
+        if str(_st['gridhash']) != _gridhash:
+            raise SystemExit(f"--restart: the state was written on a different grid "
+                             f"({str(_st['gridhash'])} against {_gridhash}) -- same size, "
+                             f"different node positions; check --bt/--bb and the grid name")
         u = xp.asarray(_st['u'])
         w = xp.asarray(_st['w'])
         b = xp.asarray(_st['b'])
@@ -1994,7 +2035,8 @@ def main():
                 and t / T >= g.savestate):
             _sout = (g.out[:-4] if g.out and g.out.endswith('.npz') else 'run') + '_state.npz'
             np.savez_compressed(_sout, u=_h(u), w=_h(w), b=_h(b), gp=_h(gp),
-                                v=_h(v), it=it - 1, tT=(it - 1) * dt / T)
+                                v=_h(v), it=it - 1, tT=(it - 1) * dt / T,
+                                gridhash=_gridhash)
             print(f"  [{el()}] state at t/T = {t/T:.3f} -> {_sout}", flush=True)
             _state_saved = True
         # Smooth start. Switching the tide on abruptly at t = 0 kicks the whole
@@ -2103,16 +2145,19 @@ def main():
             _dbe = 0.5 * (_Bt[2:, 1:-1] - _Bt[:-2, 1:-1])
             _N2tot = _N2intd + _xizd * _dbx + _etzd * _dbe
             _kap = xp.where(_N2tot < 0, g.kconv, 0.0)
+            # half-point coefficients between vertically adjacent cells; zero
+            # flux through the top and the bed
             _kh = 0.5 * (_kap[:-1, :] + _kap[1:, :]) * _Bvhd
-            _dtc = dt / _nconv
-            for _ in range(_nconv):
-                _F = _Bt[1:-1, 1:-1]
-                _fz = _kh * (_F[1:, :] - _F[:-1, :])
-                _dv = xp.zeros_like(_F)
-                _dv[1:-1, :] = _fz[1:, :] - _fz[:-1, :]
-                _dv[0, :] = _fz[0, :]
-                _dv[-1, :] = -_fz[-1, :]
-                _Bt[1:-1, 1:-1] = _F + _dtc * _dv / _cJd
+            _Kdn = xp.zeros_like(_kap)
+            _Kup = xp.zeros_like(_kap)
+            _Kdn[1:, :] = _kh
+            _Kup[:-1, :] = _kh
+            # (I - dt A) F_new = F_old, A the vertical diffusion operator:
+            # backward Euler, unconditionally stable for any kconv
+            _sub = -dt * _Kdn / _cJd
+            _sup = -dt * _Kup / _cJd
+            _dia = 1.0 + dt * (_Kdn + _Kup) / _cJd
+            _Bt[1:-1, 1:-1] = tridiag_columns(_sub, _dia, _sup, _Bt[1:-1, 1:-1], xp)
             b = _Bt.ravel()
         if _moor_idx is not None:
             _moor_t.append(t)

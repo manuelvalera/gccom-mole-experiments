@@ -166,7 +166,14 @@ See README section 6. Summary of what the path taught:
 - Resolution alone does not cure it: at dx = 5 m, dz = 1 m (their grid) the run
   still dies at t/T = 3.18 with constant kappa. Convective instability grows at
   every scale.
-- Open: the full run at their grid with kappa = 0 and --kconv, from scratch;
+- DONE: the full run at their grid (3981x89, dx 5 m, dz 1 m) with kappa = 0 and
+  implicit --kconv 0.1, on a SIGMA grid, runs all eight periods; 2 mab range
+  0.215 degC against 0.202 at 768x151. What made it possible was the grid: the
+  default TFI stretching skewed the shelf cells by a median 64-83 degrees, and
+  every run at this resolution on that grid died at the run-up.
+- Next: amplitude sweep (a = 5-6 m) on the sigma grid, to test whether the
+  thinner, weaker, shorter surges are an amplitude effect.
+- Superseded below: the full run at their grid with kappa = 0 and --kconv, from scratch;
   event duration (4-5 h against 6-20 h) and range (0.28 against ~0.5 degC),
   probably amplitude; the 15 m site is 177 m from the domain edge because the
   transect is cut at 10 m, so a wetting-and-drying shoreline is not modelled.
