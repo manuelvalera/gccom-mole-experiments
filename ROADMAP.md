@@ -154,7 +154,16 @@ and ξ ≈ 2 on the real slope (s ≈ 0.04) needs **a ≈ 3.7 m**. ξ ≈ 0.2 wo
 370 m, so the canonical case requires a gentler synthetic slope, as in the paper.
 Verify by propagating the mode across a flat domain at the computed speed.
 
-## Stage 3 — the comparison — NON-CANONICAL SIGNATURE REPRODUCED
+## Stage 3 — the comparison — MAGNITUDE REPRODUCED, SHAPE NOT
+
+CORRECTION. The event asymmetry was read off plots as non-canonical; measured
+with events.py (validated on synthetic records) every configuration is
+canonical or near-symmetric, with warming ~30x slower than their observed warm
+fronts. The notes below that say otherwise are superseded. Leading hypothesis:
+the domain stops at the 10 m contour, so the surge has no run-up beyond the
+15 m mooring to drain back from. Next test: extend the transect toward the
+shoreline and re-measure.
+
 
 See README section 6. Summary of what the path taught:
 

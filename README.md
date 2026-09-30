@@ -23,7 +23,7 @@ of Walter et al. (2012) on the measured Monterey Bay transect.
 | Nonlinear advection | **Verified.** Machine-precision exact cases; second order on stretched grids; lock release Fr = 0.699 against 0.705 published (§5) |
 | Rotation | **Verified.** Rotating seiche matches the exact dispersion relation at every latitude, same error as without rotation |
 | Nonlinear internal-wave beam | **Runs.** 25 periods, steady, 53.55° against 53.13° — the case the 2021 mimetic GCCOM could not sustain |
-| Nearshore bores, Monterey Bay | **Non-canonical signature reproduced** at the 15 m isobath at Walter et al.'s own resolution (dx = 5 m, dz = 1 m), on a sigma grid with zero background diffusivity and convective adjustment (§6) |
+| Nearshore bores, Monterey Bay | **Magnitude and vertical structure reproduced** at the 15 m isobath at Walter et al.'s own resolution (dx = 5 m, dz = 1 m); the event asymmetry is **canonical**, not the non-canonical shape they observed (§6) |
 | Core discretization | **Verified.** Second order against the exact seiche dispersion relation |
 | Dynamical similarity | **Verified.** Two domains at different depths give identical dimensionless results |
 | Lateral boundary parameter `alpha` | **Fixed.** The old default dominated the error; now `1e-6` |
@@ -229,20 +229,41 @@ front — their non-canonical description almost word for word. The constant κ
 had been smearing the warm front.
 
 On the sigma grid with κ = 0 and implicit convective adjustment
-(`--kconv 0.1`), the 15 m record is a near-rectangular pulse each period: sharp
-cold arrival, continued slow cooling, abrupt warm return.
+(`--kconv 0.1`), bottom-trapped cold events arrive once per tidal period.
+**Magnitude** is set by the imposed amplitude; at a = 5 m (ξ ≈ 1.8, chosen, as
+they did, to match the observed temperature change) it converges with
+resolution and lands near their value:
 
-| 15 m isobath | 768×151 | 3981×89 (their dx, dz) |
+| 15 m isobath, 2 mab | a = 3.7 m | a = 5.0 m |
 |---|---|---|
-| 2 mab range | 0.202 °C | 0.215 °C |
-| 4 / 6 mab | 0.034 / 0.009 °C | 0.058 / 0.012 °C |
-| warm recovery | abrupt | abrupt |
+| 768×151 | 0.202 °C | 0.409 °C |
+| 3981×89 (their dx, dz) | 0.215 °C | **0.422 °C** |
+| Walter et al. (observed bores) | | ~0.5 °C |
 
-What still differs: the cold layer is thinner (they see cooling through the
-lower 10 m), the 2 mab range is 0.2 against ~0.5 °C, and events last 3–4 h
-against 6–20 h. All three point the same way, consistent with the amplitude
-being set from ξ rather than fitted to their temperature drop; an amplitude
-sweep on this configuration is next.
+**The event shape does not match.** `events.py` measures, for each event, the
+time from onset to minimum and back, and the fastest cooling and warming rates.
+Validated on synthetic records of known shape, it reports every configuration
+here as canonical or near-symmetric — cooling at least as fast as warming:
+
+| run | cooling | warming | fastest warm / fastest cool |
+|---|---|---|---|
+| 3981×89, a = 5, κ = 0 + convection | 3.4 h | 3.0 h | 0.25 |
+| 768×151, a = 5, κ = 0 + convection | 3.5 h | 2.7 h | 0.33 |
+| 3981×89, a = 3.7, κ = 0 + convection | 2.4 h | 3.9 h | 0.09 |
+| 768×151, a = 3.7, constant κ, skewed grid | 3.5 h | 3.8 h | 0.74 |
+
+Walter et al.'s non-canonical events warm by ≥ 1 °C in about five minutes,
+~0.2 °C/min; the fastest warming here is ~0.006 °C/min. Earlier readings of the
+plots as showing an abrupt warm front were wrong, and the metric is what caught
+it. Events also last 3–5 h against their 6–20 h.
+
+The leading candidate is geometric: their domain runs to the shoreline and the
+non-canonical warm front is the drainback after the surge runs up the slope
+past the mooring and stops. Ours ends at the 10 m contour, 177 m inshore of the
+15 m mooring, so there is almost no run-up beyond it to drain back from. The
+event duration is plausibly structural too: a monochromatic M2 wave gives one
+event per 12.4 h, while their events show no fixed tidal phasing and are
+attributed to upwelling and bay-scale seiching on 5–10 day scales.
 
 **The grid.** The TFI generator's position-dependent stretching, tuned for the
 ridge benchmark, puts different node distributions on the top and bottom
