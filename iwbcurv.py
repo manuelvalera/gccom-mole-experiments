@@ -492,7 +492,7 @@ def second_diff(F, axis, xp):
     return up - 2.0 * F + dn
 
 
-def viscous(F, met_tag, met, axis_shape, xp):
+def viscous(F, met_tag, met, axis_shape, xp, wx=1.0, wz=1.0):
     """Laplacian of F on a curvilinear grid, in conservative flux form.
 
         lap F = (1/J) d/dxi [ J (xi_x^2 + xi_z^2) dF/dxi ]
@@ -509,8 +509,10 @@ def viscous(F, met_tag, met, axis_shape, xp):
     at startup). Zero flux at the boundaries.
     """
     xix, xiz, etx, etz, J = met[met_tag]
-    A = J * (xix**2 + xiz**2)
-    B = J * (etx**2 + etz**2)
+    # wx and wz weight the xi (along-grid, near-horizontal) and eta (near-vertical)
+    # parts separately, so the solver can apply a larger horizontal coefficient
+    A = wx * J * (xix**2 + xiz**2)
+    B = wz * J * (etx**2 + etz**2)
     out = xp.zeros_like(F)
     # xi direction: fluxes on the half points between neighbouring cells
     Ah = 0.5 * (A[:, :-1] + A[:, 1:])
@@ -823,6 +825,13 @@ def main():
                          'sub-stepping it is far cheaper than shrinking dt for\n'
                          'everything else, since each sub-step is a few array\n'
                          'operations rather than a pressure solve.')
+    ap.add_argument('--nuh', type=float, default=0.0,
+                    help='ADDITIONAL horizontal (along-xi) viscosity in m^2/s. With an\n'
+                         'isotropic nu = 1e-4 the horizontal grid Reynolds number is\n'
+                         '~1e4 and two-grid-interval noise in x costs nothing; ocean\n'
+                         'models use 0.01-1 m^2/s horizontally at 10-100 m resolution.')
+    ap.add_argument('--kappah', type=float, default=0.0,
+                    help='ADDITIONAL horizontal diffusivity for buoyancy, m^2/s')
     ap.add_argument('--kappa', type=float, default=0.0,
                     help='diffusivity for buoyancy in m^2/s. Walter et al. use none,\n'
                          'leaving the scheme to set it; nonzero here is a deliberate\n'
@@ -888,6 +897,12 @@ def main():
                     help='directory to write instantaneous snapshots to, for '
                          'animation. The grid is written once as grid.npz and each '
                          'frame as frame_NNNNN.npz in float32. Render with animate.py.')
+    ap.add_argument('--failframes', type=int, default=0,
+                    help='keep the last N snapshots in memory (spaced by --framerate)\n'
+                         'and write them to --frames only if the run diverges. A\n'
+                         'marginal instability can fail at very different times from\n'
+                         'run to run, so guessing --framefrom misses it; this always\n'
+                         'captures the approach to the failure.')
     ap.add_argument('--framerate', type=float, default=12.0,
                     help='snapshots per forcing period (default 12).')
     ap.add_argument('--framefrom', type=float, default=0.0,
@@ -1837,28 +1852,43 @@ def main():
               f"advanced exactly")
     _D_adv = D
     _met = (logical_metrics(XM, ZM, np)
-            if (g.advect == 'full' or g.nu > 0 or g.kappa > 0) else None)
-    if g.nu > 0 or g.kappa > 0:
+            if (g.advect == 'full' or g.nu > 0 or g.kappa > 0 or g.nuh > 0
+                or g.kappah > 0) else None)
+    if g.nu > 0 or g.kappa > 0 or g.nuh > 0 or g.kappah > 0:
         # Explicit diffusion is stable for nu*dt*lambda_max below 2, and in
         # practice well below it once advection and the projection are in the
         # same step. lambda_max is the largest eigenvalue of the discrete
         # Laplacian, which on a stretched grid lives in the thinnest cells --
         # taking it from the top-row spacing understated it by an order of
         # magnitude on the Monterey transect.
+        # The along-grid (xi) and cross-grid (eta) parts of the Laplacian have
+        # very different largest eigenvalues -- cells are metres wide and
+        # centimetres thick -- and the horizontal coefficients act only on the
+        # first. Combining them per cell keeps a large horizontal viscosity
+        # from being charged against the thin vertical spacing.
         _lmax = 0.0
+        _dnum = 0.0
         for _tag in ('u', 'c'):
             _xx, _xz, _tx, _tz, _J = _met[_tag]
             _A = _J * (_xx**2 + _xz**2)
             _B = _J * (_tx**2 + _tz**2)
             _Ah = 0.5 * (_A[:, :-1] + _A[:, 1:])
             _Bh = 0.5 * (_B[:-1, :] + _B[1:, :])
-            _lm = np.zeros_like(_A)
-            _lm[:, 1:-1] += _Ah[:, 1:] + _Ah[:, :-1]
-            _lm[1:-1, :] += _Bh[1:, :] + _Bh[:-1, :]
-            _lmax = max(_lmax, float((_lm / _J).max()))
-        _dnum = max(g.nu, g.kappa) * (T / g.spp) * _lmax
+            _lx = np.zeros_like(_A)
+            _lz = np.zeros_like(_A)
+            _lx[:, 1:-1] += _Ah[:, 1:] + _Ah[:, :-1]
+            _lz[1:-1, :] += _Bh[1:, :] + _Bh[:-1, :]
+            _lx = _lx / _J
+            _lz = _lz / _J
+            _lmax = max(_lmax, float((_lx + _lz).max()))
+            if _tag == 'u':
+                _cx, _cz = g.nu + g.nuh, g.nu
+            else:
+                _cx, _cz = g.kappa + g.kappah, g.kappa
+            _dnum = max(_dnum, float((_cx * _lx + _cz * _lz).max()) * (T / g.spp))
         _nsub = g.nusub if g.nusub > 0 else max(int(np.ceil(_dnum / 0.4)), 1)
-        print(f"  [{el()}] viscosity  : nu={g.nu:g} kappa={g.kappa:g} m^2/s; "
+        print(f"  [{el()}] viscosity  : nu={g.nu:g} (+{g.nuh:g} horizontal) "
+              f"kappa={g.kappa:g} (+{g.kappah:g} horizontal) m^2/s; "
               f"nu*dt*lambda_max = {_dnum:.3f} (lambda_max {_lmax:.3g} 1/m^2)")
         print(f"  [{el()}] diffusion  : {_nsub} sub-step(s), "
               f"{_dnum/_nsub:.3f} each  "
@@ -1877,10 +1907,16 @@ def main():
     _int_c = _ic.ravel()
     _fr_every = max(int(round(g.spp / max(g.framerate, 1e-9))), 1) if g.frames else 0
     _fr_n = 0
+    from collections import deque
+    _ring = deque(maxlen=max(g.failframes, 1))
     if g.frames:
         os.makedirs(g.frames, exist_ok=True)
+        # dt and the background N^2 let a post-processor reconstruct the total
+        # stratification and the local CFL number in every cell of every frame
         np.savez_compressed(os.path.join(g.frames, 'grid.npz'),
-                            X=XM, Z=ZM, T=T, om=om, ratio=g.ratio, D0=D0, Lx=LX)
+                            X=XM, Z=ZM, T=T, om=om, ratio=g.ratio, D0=D0, Lx=LX,
+                            dt=dt, N2c=(np.full(nc, float(N2c)) if np.isscalar(N2c)
+                                        else np.asarray(N2c)))
         print(f"  [{el()}] frames -> {g.frames}, every {_fr_every} steps "
               f"({g.framerate:g} per period) from t/T = {g.framefrom:g}")
     _hist = []
@@ -2064,20 +2100,22 @@ def main():
             _wbc = g.mode1 * om * _phi_w * xp.sin(_ph_w) * _rf
             _bbc = -_N2_c * g.mode1 * _phi_c * xp.cos(_ph_c) * _rf
         us = u - dt * gp[:nu_] - dt * (u - ubc) / g.taus * _slu - dt * _au
-        if g.nu > 0:
+        if g.nu > 0 or g.nuh > 0:
             # fractional step, sub-cycled: each pass is stable on its own
             _dts = dt / _nsub
             _U2 = us.reshape(n, m + 1)
             for _ in range(_nsub):
-                _U2 = _U2 + _dts * g.nu * viscous(_U2, 'u', _met, None, xp)
+                _U2 = _U2 + _dts * viscous(_U2, 'u', _met, None, xp,
+                                           wx=g.nu + g.nuh, wz=g.nu)
             us = _U2.ravel()
         _wtgt = _wbc if _m1 is not None else 0.0
         ws = w - dt * gp[nu_:] + dt * (_Iz @ b) - dt * (w - _wtgt) / g.taus * _slw - dt * _aw
-        if g.nu > 0:
+        if g.nu > 0 or g.nuh > 0:
             _dts = dt / _nsub
             _W2 = ws.reshape(n + 1, m)
             for _ in range(_nsub):
-                _W2 = _W2 + _dts * g.nu * viscous(_W2, 'w', _met, None, xp)
+                _W2 = _W2 + _dts * viscous(_W2, 'w', _met, None, xp,
+                                           wx=g.nu + g.nuh, wz=g.nu)
             ws = _W2.ravel()
         usw = xp.concatenate([us, ws])
         if Rfused is not None or g.device == 'gpu':
@@ -2127,13 +2165,13 @@ def main():
             _Bg[:, 0] = _Bg[:, 1]
             _Bg[:, -1] = _Bg[:, -2]
             b = _Bg.ravel()
-        if g.kappa > 0:
+        if g.kappa > 0 or g.kappah > 0:
             _dts = dt / _nsub
             _B2 = b.reshape(n + 2, m + 2)
             for _ in range(_nsub):
                 _B2[1:-1, 1:-1] = (_B2[1:-1, 1:-1]
-                                   + _dts * g.kappa * viscous(_B2[1:-1, 1:-1], 'c',
-                                                              _met, None, xp))
+                                   + _dts * viscous(_B2[1:-1, 1:-1], 'c', _met, None, xp,
+                                                    wx=g.kappa + g.kappah, wz=g.kappa))
             b = _B2.ravel()
         if _m1 is not None:
             b = b - dt * (b - _bbc) / g.taus * _slc
@@ -2165,7 +2203,12 @@ def main():
                            else b[_moor_idx].copy())
         else:
             b = b - dt * N2c * wc
-        if _fr_every and it % _fr_every == 0 and t / T >= g.framefrom:
+        if g.failframes and _fr_every and it % _fr_every == 0:
+            _ring.append(dict(u=_h(_Iu @ u).astype(np.float32),
+                              w=_h(wc).astype(np.float32),
+                              b=_h(b).astype(np.float32),
+                              t=np.float32(t), tT=np.float32(t / T)))
+        if (not g.failframes) and _fr_every and it % _fr_every == 0 and t / T >= g.framefrom:
             _uc = _h(_Iu @ u).astype(np.float32)
             _wcf = _h(wc).astype(np.float32)
             np.savez_compressed(os.path.join(g.frames, f"frame_{_fr_n:05d}.npz"),
@@ -2260,6 +2303,13 @@ def main():
                               f"{_xa[_mh].max():.0f} m, z {_za[_mh].min():.1f} to "
                               f"{_za[_mh].max():.1f} m")
                 print(f"      dt={dt:.1f} s  N_max*dt={_Nmax*dt:.2f}")
+                if g.failframes and g.frames and _ring:
+                    for _q, _snap in enumerate(_ring):
+                        np.savez_compressed(os.path.join(g.frames, f"frame_{_q:05d}.npz"),
+                                            **_snap)
+                    print(f"      last {len(_ring)} snapshots before the failure "
+                          f"-> {g.frames} (t/T {float(_ring[0]['tT']):.3f} to "
+                          f"{float(_ring[-1]['tT']):.3f})")
                 if _moor_idx is not None and _moor_t:
                     # keep what was recorded: the approach to a blow-up is the
                     # most informative part of the record

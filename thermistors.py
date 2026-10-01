@@ -52,6 +52,13 @@ def main():
         T = float(d['T'])
         times = d['t']
         temps = g.T0 + d['b'] / (9.80665 * g.alpha)
+        # a record that ends in a failure carries NaN at the tail; keep what
+        # came before it rather than letting one bad sample void the ranges
+        good = np.isfinite(temps).all(axis=1)
+        if not good.all():
+            print(f"dropping {int((~good).sum())} non-finite sample(s) at the end")
+        times = times[good]
+        temps = temps[good]
         g.mab = list(d['mab'])
         g.isobath = float(d['isobath'])
         x_moor = float(d['x'])

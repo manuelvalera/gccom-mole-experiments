@@ -160,6 +160,15 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--bathy', default='narrow_bathy_100m.csv')
     ap.add_argument('--out', default=os.path.join('grids', 'mryshelf'))
+    ap.add_argument('--shore', type=float, default=0.0,
+                    help='continue the SHALLOW end past the last measured point, at '
+                         'the slope of the last --shorefit metres, until the depth '
+                         'reaches this value (m). The measured transect stops at '
+                         '8.3 m; Walter et al. run their domain to the shoreline, and '
+                         'the non-canonical warm front is the drainback of a surge '
+                         'that has run up the slope past the 15 m mooring.')
+    ap.add_argument('--shorefit', type=float, default=500.0,
+                    help='length of the shallow end (m) whose slope is continued')
     ap.add_argument('--extend', type=float, default=0.0,
                     help='total transect length in km after extending the OFFSHORE '
                          'end at its deepest depth. Walter et al. (2012) use a 20 km '
@@ -180,6 +189,37 @@ def main():
     g = ap.parse_args()
 
     s, h = read_transect(g.bathy)
+    if g.shore > 0:
+        # Extrapolate the shallow end at its own measured slope. The fit uses
+        # the last --shorefit metres rather than the last two points, so a
+        # single noisy sounding does not set the slope of the whole run-up.
+        shallow_right = h[-1] < h[0]
+        step = float(np.median(np.abs(np.diff(s))))
+        if shallow_right:
+            sel = s >= s.max() - g.shorefit
+        else:
+            sel = s <= s.min() + g.shorefit
+        slope = float(np.polyfit(s[sel], h[sel], 1)[0])
+        shoaling = slope < 0 if shallow_right else slope > 0
+        if not shoaling:
+            raise SystemExit(f'--shore: the last {g.shorefit:.0f} m do not shoal '
+                             f'(fitted slope {slope:+.4f}); nothing to continue')
+        h_end = h[-1] if shallow_right else h[0]
+        if g.shore >= h_end:
+            raise SystemExit(f'--shore {g.shore:g} m is not shallower than the last '
+                             f'measured depth {h_end:.1f} m')
+        run = (h_end - g.shore) / abs(slope)
+        npts = max(int(np.ceil(run / step)), 1)
+        ds = np.arange(1, npts + 1) * (run / npts)
+        if shallow_right:
+            s = np.concatenate([s, s.max() + ds])
+            h = np.concatenate([h, h_end - abs(slope) * ds])
+        else:
+            s = np.concatenate([s.min() - ds[::-1], s])
+            h = np.concatenate([(h_end - abs(slope) * ds)[::-1], h])
+        print(f"shoreward continuation: slope {abs(slope):.4f} over the last "
+              f"{g.shorefit:.0f} m, {h_end:.1f} m -> {g.shore:g} m in {run:.0f} m "
+              f"({npts} points)")
     if g.extend > 0:
         # Which end is deep? Extend that one, at its own depth, with a short
         # cosine join so the added section does not start with a kink.

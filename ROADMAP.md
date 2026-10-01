@@ -154,6 +154,41 @@ and ξ ≈ 2 on the real slope (s ≈ 0.04) needs **a ≈ 3.7 m**. ξ ≈ 0.2 wo
 370 m, so the canonical case requires a gentler synthetic slope, as in the paper.
 Verify by propagating the mode across a flat domain at the computed speed.
 
+## Stage 3 — WHERE THIS WAS LEFT (resume here)
+
+The stratification was the missing piece. The profile used throughout
+(MRY_profile.txt, a 7-Gaussian fit) is late-summer: 0.73 degC rms from the
+August M1 climatology, 1.87 from May, with a weak surface layer and a
+pycnocline at ~30 m. MBARI station C1 has a cast on 18 May 2010, two days after
+Walter et al.'s observation window, with a sharp thermocline at 5-15 m
+(peak N 2.1e-2 at 9 m) -- nearly the inverse -- and a 9-11 degC range matching
+their 15 m thermistors. Built with:
+
+    python ctd_profile.py C1_CTD.mat --date 2010-05-18 --smooth 6 -o mry_N_c1_20100518.txt
+
+Sensitivity first: shifting the old pycnocline up 10 m moved the bore rate ratio
+from 0.27 (canonical) to 1.10 and tripled the 15 m signal. With the C1 profile
+the internal tide fissions into a train of solitary waves of depression on the
+thermocline (~400 m apart, ~half-hour passage, the order of their observed
+trailing waves). At 768x151 the lead wave steepens onto the slope until its
+front is two cells wide and the run fails at t/T ~ 3.0 for a = 3 and 5 alike --
+a resolution limit, since soliton width scales with the ~10 m thermocline.
+
+NEXT RUN (about 2 h: grid generation plus 96k steps), Walter's resolution with
+the C1 profile, then events.py and thermistors.py --alpha 2.21e-4:
+
+    --gridname mry20s4 --Lx 20006.1 --nprofile mry_N_c1_20100518.txt
+    --nx 3981 --nz 89 --spp 12000 --mode1 3.0 --lat 36.8
+    --kappa 0 --kconv 0.1 --nuh 0.05 --kappah 0.05 --bt 0.01 --bb 0.01
+    --savestate 2.6 --failframes 60 --moor 15 2 4 6
+
+Tools added this stretch: ctd_profile.py, shift_profile.py, instab_anim.py,
+events.py; solver gained implicit convective adjustment, anisotropic
+viscosity/diffusivity (--nuh/--kappah), --failframes, grid fingerprints on
+checkpoints. Findings along the way: run-up room and rotation do not change the
+canonical shape on the old profile; non-rotating runs need horizontal mixing
+(a two-grid-interval mode in x); a 4 m shore extension adds thin-cell CFL.
+
 ## Stage 3 — the comparison — MAGNITUDE REPRODUCED, SHAPE NOT
 
 CORRECTION. The event asymmetry was read off plots as non-canonical; measured
