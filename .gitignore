@@ -33,3 +33,12 @@ th*.png
 thermistors_*.png
 bore*.png
 grids/*/geom_over.m
+
+# diagnostics and regenerable inputs
+*_sheet.png
+c1_profile.png
+grid_xi2.png
+C1_CTD.mat
+mry_N_up*.txt
+mry_N_dn*.txt
+walter_xi*.csv
