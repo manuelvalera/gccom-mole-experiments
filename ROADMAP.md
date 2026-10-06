@@ -156,6 +156,17 @@ Verify by propagating the mode across a flat domain at the computed speed.
 
 ## Stage 3 — WHERE THIS WAS LEFT (resume here)
 
+RESULT: on Walter et al.'s own bathymetries and stratification, at their
+resolution (3981x81, spp 24000, --bulge 0, --mode1force uw, a = 10, 6 periods),
+the steep step gives non-canonical events (cooling 4.6 h, warming 1.2 h) and the
+gentle slope canonical ones (cooling 0.17 h, warming 6.3 h). README section 6.
+
+NEXT: (1) a = 16 m, their implied amplitude, at full resolution -- does the
+warm return sharpen toward their ~0.2 degC/min (ours 0.03-0.04)? (2) the
+measured-transect runs near the coast on a --bulge 0 grid. (3) Email the
+authors with the result and the one remaining gap.
+
+
 CORRECTION (from Walter et al.'s own setup files, rectddatafromsuntansmodel.zip:
 model_setup.m, mb_modes.m, higher_modes.m, umode.mat, realdepth.mat).
 

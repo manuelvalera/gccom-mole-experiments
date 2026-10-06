@@ -865,6 +865,14 @@ def main():
                     help='diffusivity for buoyancy in m^2/s. Walter et al. use none,\n'
                          'leaving the scheme to set it; nonzero here is a deliberate\n'
                          'choice rather than the default.')
+    ap.add_argument('--mode1force', default='uwb', choices=['uwb', 'uw'],
+                    help='what the offshore sponge imposes for --mode1. uwb (the\n'
+                         'default) relaxes velocity AND buoyancy toward the linear\n'
+                         'mode; at large amplitude the linear density field is\n'
+                         'locally inverted at a sharp pycnocline, so the forcing zone\n'
+                         'itself overturns. uw imposes only the velocity profile, as\n'
+                         'SUNTANS did for Walter et al. (2012), and lets buoyancy\n'
+                         'respond; the shoreward sponge still absorbs buoyancy.')
     ap.add_argument('--mode1', type=float, default=0.0,
                     help='amplitude in metres of an internal wave imposed at the\n'
                          'offshore boundary, as an isopycnal displacement. Replaces the\n'
@@ -1797,6 +1805,9 @@ def main():
     _slc = np.where(_xcf < 0,
                     np.exp(-4 * np.abs(_xcf + LX/2) / Lsl),
                     np.exp(-4 * np.abs(_xcf - LX/2) / Lslr))
+    # the shoreward sponge alone, for --mode1force uw: buoyancy is still absorbed
+    # at the coast but not pinned to the linear mode in the forcing zone
+    _slc_r = np.where(_xcf < 0, 0.0, _slc)
     _nconv = 1
     if g.kconv > 0:
         _metc = logical_metrics(XM, ZM, np)
@@ -2023,6 +2034,7 @@ def main():
             _met = {k: tuple(cp.asarray(a) for a in v) for k, v in _met.items()}
         _int_c = cp.asarray(_int_c)
         _slc = cp.asarray(_slc)
+        _slc_r = cp.asarray(_slc_r)
         if g.kconv > 0:
             _N2intd = cp.asarray(_N2intd)
             _Bvhd = cp.asarray(_Bvhd)
@@ -2221,7 +2233,10 @@ def main():
                                                     wx=g.kappa + g.kappah, wz=g.kappa))
             b = _B2.ravel()
         if _m1 is not None:
-            b = b - dt * (b - _bbc) / g.taus * _slc
+            if g.mode1force == 'uwb':
+                b = b - dt * (b - _bbc) / g.taus * _slc
+            else:
+                b = b - dt * b / g.taus * _slc_r
         if g.kconv > 0:
             # vertical diffusion with a coefficient that is kconv where the
             # column is statically unstable and zero where it is not

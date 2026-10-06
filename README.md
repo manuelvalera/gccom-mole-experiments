@@ -23,7 +23,7 @@ of Walter et al. (2012) on the measured Monterey Bay transect.
 | Nonlinear advection | **Verified.** Machine-precision exact cases; second order on stretched grids; lock release Fr = 0.699 against 0.705 published (§5) |
 | Rotation | **Verified.** Rotating seiche matches the exact dispersion relation at every latitude, same error as without rotation |
 | Nonlinear internal-wave beam | **Runs.** 25 periods, steady, 53.55° against 53.13° — the case the 2021 mimetic GCCOM could not sustain |
-| Nearshore bores, Monterey Bay | **Magnitude and vertical structure reproduced** at the 15 m isobath at Walter et al.'s own resolution (dx = 5 m, dz = 1 m); the event asymmetry is **canonical**, not the non-canonical shape they observed (§6) |
+| Nearshore bores, Monterey Bay | **Both regimes reproduced** on Walter et al.'s bathymetries at their resolution: non-canonical on the steep step, canonical on the gentle slope; the warm return is slower than theirs (§6) |
 | Core discretization | **Verified.** Second order against the exact seiche dispersion relation |
 | Dynamical similarity | **Verified.** Two domains at different depths give identical dimensionless results |
 | Lateral boundary parameter `alpha` | **Fixed.** The old default dominated the error; now `1e-6` |
@@ -198,109 +198,119 @@ at the 15 m isobath, where a shoaling internal tide arrives as cold bottom
 surges. They separate a *canonical* shape (abrupt cold front, gradual warming)
 from the *non-canonical* one they observed (sharp drop, continued slow cooling,
 then an abrupt warm front), and attribute the difference to the internal
-Iribarren number.
+Iribarren number ξ = s/√(a/λ), reproducing both with SUNTANS on two idealised
+bathymetries.
 
-**Setup.** The measured transect extended offshore to 20 km (`mry_setup.py
---extend 20 --trim 10`), measured N(z), M2 with rotation at 36.8°N, a mode-1
-wave imposed at the offshore boundary (`--mode1 3.7`; c₁ = 0.236 m/s,
-λ = 10.5 km, ξ ≈ 2), ν = 1e-4 m²/s as in their SUNTANS runs, and a virtual
-mooring sampled every step (`--moor 15 2 4 6`). The grid is **sigma**
-(`--bt 0.01 --bb 0.01`): see "The grid" below for why that matters.
+### Result: both regimes, from their own setup
 
-**The wave converts from a linear tide to bottom-trapped surges as it shoals.**
-The ratio of the 2 mab to 6 mab temperature range crosses 1 between the 80 and
-75 m isobaths and climbs to 1.68 at 60 m. The thermistor record at 60 m is
-identical at 768×151 and 1536×301.
+Their two bathymetries, their stratification, the same mode-1 wave, at their
+resolution (3981 × 81 cells: dx = 5 m, dz = 1 m at 81 m depth), six periods:
+
+| | ξ ≈ 2, steep step | ξ ≈ 0.2, gentle slope |
+|---|---|---|
+| cooling (onset to minimum) | **4.6 h** | **0.17 h** |
+| warming (minimum to ambient) | **1.2 h** | **6.3 h** |
+| cooling / warming time | 3.7 → **non-canonical** | 0.03 → **canonical** |
+| fastest cooling | 0.01–0.09 °C/min | 0.38–0.49 °C/min |
+| 2 / 4 / 6 mab range | 1.06 / 0.70 / 0.37 °C | 1.39 / 1.40 / 1.40 °C |
+
+![15 m mooring, steep step](docs/figures/walter_xi2_full_15m.png)
+
+![15 m mooring, gentle slope](docs/figures/walter_xi02_full_15m.png)
+
+On the gentle slope the wave steepens into a bore offshore and arrives as a
+cold front lasting minutes that fills the column, then relaxes over hours. On
+the step the surge is bottom-trapped and cools the lower few metres for hours
+before draining back. Only the slope differs between the two runs.
+
+What still falls short: the non-canonical warm return takes about an hour
+(fastest warming 0.03–0.04 °C/min) where theirs takes minutes (~0.2 °C/min).
+These runs use a = 10 m; their two ξ values with their two slopes imply a
+shared amplitude near 16 m, and a larger surge should drain back faster.
+`events.py` makes the classification: per event, the time from onset to the
+minimum and back. The shape is decided by where the time goes rather than by
+the fastest rates, because a non-canonical event opens with a sharp drop too.
+
+**Their setup**, recovered from the archived model files (`model_setup.m`,
+`mb_modes.m`, `umode.mat`, `realdepth.mat`): stratification is a two-tanh fit
+to the MBARI C1 cast of 1 April 2010, which `mry_N.txt` matches within 0.1 °C;
+the bathymetries are analytic (`walter_bathy.py` writes them), the steep one
+reproducing the real step along their bore path (13 → 42 m within one 200 m
+sample); forcing is a mode-1 velocity profile at the offshore boundary, which
+`--mode1force uw` imitates. Departures, all disclosed: convective adjustment
+where N² < 0 (`--kconv 0.1`) and horizontal mixing (`--nuh 0.05 --kappah
+0.05`), neither needed by SUNTANS's TVD scalar scheme; a 1.9 s step against
+their 1 s; rotation at 36.8°N.
+
+### On the measured transect
+
+Before the archive turned up, the comparison ran on our own transect (measured
+bathymetry extended offshore, `mry_setup.py --extend 20`). Two results there
+stand: the wave converts from a linear tide to bottom-trapped surges as it
+shoals, and the 2 mab magnitude converges with resolution.
 
 | isobath | 80 m | 75 m | 70 m | 65 m | 60 m |
 |---|---|---|---|---|---|
 | range 2 mab / 6 mab | 0.87 | 1.04 | 1.11 | 1.28 | 1.68 |
 
-**The shape at 15 m depends on how mixing is represented.** With a constant
-scalar diffusivity κ = 1e-4 the events are canonical — sharp onset, smooth
-recovery. Every attempt to lower κ failed at the same moment: the surge
-overturns the column at the run-up (N² reaches −1e-3 s⁻² over hundreds of
-cells) and the overturn grows at √|N²| with nothing to stop it. Walter et al.
-measured O(1 m) overturns at exactly this point. Convective adjustment
-(`--kconv 0.01`: vertical diffusion only where N² < 0) lets the background go
-to **zero, as in their setup**, and the record changes character: sharp drop,
-continued cooling with small internal waves riding on it, then an abrupt warm
-front — their non-canonical description almost word for word. The constant κ
-had been smearing the warm front.
-
-On the sigma grid with κ = 0 and implicit convective adjustment
-(`--kconv 0.1`), bottom-trapped cold events arrive once per tidal period.
-**Magnitude** is set by the imposed amplitude; at a = 5 m (ξ ≈ 1.8, chosen, as
-they did, to match the observed temperature change) it converges with
-resolution and lands near their value:
-
 | 15 m isobath, 2 mab | a = 3.7 m | a = 5.0 m |
 |---|---|---|
 | 768×151 | 0.202 °C | 0.409 °C |
-| 3981×89 (their dx, dz) | 0.215 °C | **0.422 °C** |
-| Walter et al. (observed bores) | | ~0.5 °C |
+| 3981×89 | 0.215 °C | 0.422 °C |
 
-**The event shape does not match.** `events.py` measures, for each event, the
-time from onset to minimum and back, and the fastest cooling and warming rates.
-Validated on synthetic records of known shape, it reports every configuration
-here as canonical or near-symmetric — cooling at least as fast as warming:
+The shape never became non-canonical there — cooling/warming time ratios of
+1.0–1.2 (roughly symmetric) with their stratification, 0.36 (canonical) with
+the C1 cast of 18 May 2010 — through changes of resolution, rotation, mixing,
+stratification and run-up room. The reason is the bathymetry: our transect
+climbs from 50 m to 15 m over about a kilometre; theirs does it in ~400 m, so
+at the mooring ours sits nearer ξ ≈ 1. These runs also used the bowed grid
+described below, so their behaviour near the coast deserves a rerun.
 
-| run | cooling | warming | fastest warm / fastest cool |
-|---|---|---|---|
-| 3981×89, a = 5, κ = 0 + convection | 3.4 h | 3.0 h | 0.25 |
-| 768×151, a = 5, κ = 0 + convection | 3.5 h | 2.7 h | 0.33 |
-| 3981×89, a = 3.7, κ = 0 + convection | 2.4 h | 3.9 h | 0.09 |
-| 768×151, a = 3.7, constant κ, skewed grid | 3.5 h | 3.8 h | 0.74 |
+### What it took
 
-Walter et al.'s non-canonical events warm by ≥ 1 °C in about five minutes,
-~0.2 °C/min; the fastest warming here is ~0.006 °C/min. Earlier readings of the
-plots as showing an abrupt warm front were wrong, and the metric is what caught
-it. Events also last 3–5 h against their 6–20 h.
+**A true sigma grid.** Two ridge-benchmark defaults wrecked the shelf grids.
+Position-dependent stretching puts different node spacings on the top and
+bottom curves, so TFI leans the columns: ~490 m of drift over 88 m of depth,
+cells a median 64–83° off orthogonal. Uniform stretching (`--bt 0.01 --bb
+0.01`) fixed the drift, but `--bulge 0.15` still bowed both side walls by
+0.15 D0, which TFI blends into every column: ~20° near surface and bed, 80° at
+the shallow end, while the drift diagnostic kept reporting a sigma grid.
+`grid_view.py --skew` on the grid a run actually used is what showed it. With
+`--bulge 0` the worst cell on the steep profile is 4.7°, the bottom slope itself
+(`--sigma` builds the same grid from any TFI output).
 
-The leading candidate is geometric: their domain runs to the shoreline and the
-non-canonical warm front is the drainback after the surge runs up the slope
-past the mooring and stops. Ours ends at the 10 m contour, 177 m inshore of the
-15 m mooring, so there is almost no run-up beyond it to drain back from. The
-event duration is plausibly structural too: a monochromatic M2 wave gives one
-event per 12.4 h, while their events show no fixed tidal phasing and are
-attributed to upwelling and bay-scale seiching on 5–10 day scales.
+![Default bulge: columns bowed, 20–80° off orthogonal](docs/figures/grid_walter_bulge015.png)
 
-**The grid.** The TFI generator's position-dependent stretching, tuned for the
-ridge benchmark, puts different node distributions on the top and bottom
-boundaries so interior lines lean. On a 1000 m-deep ridge domain that is ~150 m
-of drift and harmless. On an 88 m-deep, 20 km shelf the same machinery drifts
-~490 m, and the cells were a median **64° from orthogonal offshore and 81–83° on
-the slope** — the solver's own `grid angle` line reported 5.8°–170.5° throughout.
-Several operators neglect cross-derivatives on the assumption of near-orthogonal
-cells, and every run-up failure sat where the skew was worst. Uniform
-stretching (`--bt 0.01 --bb 0.01`) removed the drift, but a second ridge-benchmark
-default was still active: `--bulge 0.15` bows both side walls inward by 0.15 D0,
-and TFI blends that bow into every column. The top-to-bottom drift stays zero, so
-the diagnostics kept reporting a sigma grid, while cells sat ~20° off orthogonal
-near the surface and bed and up to 80° at the shallow end, where a 12 m bow spans
-5 m of depth. `grid_view.py --skew` on the grid a run actually used is what showed
-it. With `--bulge 0` as well, the worst cell on Walter et al.'s steep profile is
-4.7°, the angle of the bottom slope itself.
+![--bulge 0: a true sigma grid, worst cell 4.7°](docs/figures/grid_walter_bulge0.png)
 
-![Grid skewness on Walter et al.'s steep profile with the default side-wall bulge](docs/figures/grid_walter_bulge015.png)
+**The forcing at the right end.** The solver forces in the left sponge;
+`mry_setup.py` now always puts the deep end there. Their profile, written
+shallow-end first, was at first run mirrored, with the wave forced on top of
+the slope.
 
-![The same grid with --bulge 0: a true sigma grid](docs/figures/grid_walter_bulge0.png) On the skewed grid every run at 3981×89 died at the
-run-up; on the sigma grid the same configuration runs all eight periods. Results
-computed on the skewed mry20 grid earlier in this work should be read with that
-in mind.
+**Resolution for steep fronts.** At 26 m cells both bores — the soliton-like
+front on the gentle slope, the surge against the step — collapse to two cells
+and the runs die; at 5 m they run to completion. `instab_anim.py` and
+`--failframes`, which keep the last snapshots in memory and write them only on
+divergence, are what showed where each failure began.
 
-Convective adjustment is implicit — one tridiagonal solve per column per step —
-because strengths that keep up with an overturn (0.1–1 m²/s, the range ocean
-models use) would need hundreds to thousands of explicit sub-steps in the
-thinnest cells.
+**Mixing where the physics needs it.** Overturns at the run-up grow at √|N²|;
+implicit convective adjustment mixes them at the strengths ocean models use
+(0.1–1 m²/s) for one tridiagonal solve per column. A two-cell oscillation in x
+grows wherever the horizontal grid Reynolds number is ~10⁴; horizontal mixing
+of 0.05 m²/s damps it without touching wavelengths of hundreds of metres.
 
-Things learned the hard way, all now diagnosed by the solver itself: a grid
-generator validated on one geometry can be quietly wrong on another;
-`alpha` scales as 1/dx² and must change with the domain size; the shoreward
-sponge must not cover the slope or the mooring; frames 47 minutes apart cannot
-show a five-minute front, hence `--moor`; and explicit diffusion is limited by
-the thinnest cells, not the typical ones, hence the metric-based stability
-number and `--nusub`.
+**Measurement before interpretation.** Frames 47 minutes apart cannot show a
+five-minute front, hence `--moor`, sampled every step. Several shapes read off
+plots in this work turned out wrong once measured, in both directions; the
+event metric was validated on synthetic records of known shape before it was
+trusted, and corrected when the first criterion misclassified non-canonical
+events.
+
+Also learned the hard way: `alpha` scales as 1/dx² and must change with the
+domain size; the shoreward sponge must not cover the slope or the mooring; and
+explicit diffusion is limited by the thinnest cells, hence the metric-based
+stability number and sub-cycling.
 
 ## MOLE fixes arising from this work
 
@@ -345,6 +355,8 @@ python centroid_track.py val-npz
 | `--kconv` | convective adjustment where N² < 0, implicit per column (§6) |
 | `--bt`, `--bb`, `--bulge` | grid stretching and side-wall bow; `--bt 0.01 --bb 0.01 --bulge 0` gives a true sigma grid, which the shelf needs |
 | `--mode1 A`, `--lock G` | mode-1 boundary forcing; lock release |
+| `--mode1force uwb\|uw` | what the forcing sponge imposes: velocity and buoyancy (default), or velocity only as SUNTANS did |
+| `--sigma` | rebuild the TFI grid as an exact sigma grid on the same bed (equivalent to `--bulge 0 --bt 0.01 --bb 0.01`) |
 | `--moor ISOBATH MAB...` | virtual mooring sampled every step |
 | `--savestate T`, `--restart FILE` | checkpoint and resume (resumes by time, so `--spp` may change) |
 | `--trace N`, `--checkevery N` | step-level diagnostics, including CFL and minimum N² |

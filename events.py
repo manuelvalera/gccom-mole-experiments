@@ -58,17 +58,27 @@ def analyse(path, thresh, smooth_s, alpha, T0):
     if ends and starts and ends[0] < starts[0]:
         ends = ends[1:]
     rate = np.gradient(ts, t) * 60.0                      # degC per minute
-    rows = []
+    # widen each crossing to where the anomaly first leaves and returns to 10%
+    # of its dip; an event whose first sharp drop recovers briefly before the
+    # main cooling crosses the threshold twice, so overlapping windows are one
+    # event and are merged before anything is measured
+    wins = []
     for s0, e0 in zip(starts, ends):
-        # widen to where the anomaly first leaves and returns to 10% of the dip
-        seg_min = s0 + int(np.argmin(anom[s0:e0]))
-        depth = anom[seg_min]
+        depth = anom[s0 + int(np.argmin(anom[s0:e0]))]
         lo = s0
         while lo > 0 and anom[lo] < 0.1 * depth:
             lo -= 1
         hi = e0
         while hi < len(anom) - 1 and anom[hi] < 0.1 * depth:
             hi += 1
+        if wins and lo <= wins[-1][1]:
+            wins[-1] = (wins[-1][0], max(hi, wins[-1][1]))
+        else:
+            wins.append((lo, hi))
+    rows = []
+    for lo, hi in wins:
+        seg_min = lo + int(np.argmin(anom[lo:hi + 1]))
+        depth = anom[seg_min]
         cool_h = (t[seg_min] - t[lo]) / 3600.0
         warm_h = (t[hi] - t[seg_min]) / 3600.0
         rows.append(dict(t=t[seg_min] / T, depth=-depth, cool_h=cool_h, warm_h=warm_h,
@@ -98,15 +108,25 @@ def main():
             print(f"   {r['t']:6.2f} {r['depth']:6.3f} {r['cool_h']:7.2f} {r['warm_h']:7.2f} "
                   f"{r['cool_rate']:8.4f}/m {r['warm_rate']:8.4f}/m  {ratio:14.2f}")
         if rows:
-            last = rows[len(rows) // 2:]
-            cr = np.median([r['cool_h'] for r in last])
-            wr = np.median([r['warm_h'] for r in last])
-            rr = np.median([r['warm_rate'] / max(r['cool_rate'], 1e-12) for r in last])
-            shape = ('non-canonical (warming faster)' if rr > 1.5 and wr < cr
-                     else 'canonical (cooling faster)' if rr < 0.67
-                     else 'roughly symmetric')
-            print(f"   later events, median: cooling {cr:.2f} h, warming {wr:.2f} h, "
-                  f"rate ratio {rr:.2f}  -> {shape}")
+            # spun-up events: after t/T = 3 if there are any, else the later half
+            late = [r for r in rows if r['t'] >= 3.0] or rows[len(rows) // 2:]
+            cr = float(np.median([r['cool_h'] for r in late]))
+            wr = float(np.median([r['warm_h'] for r in late]))
+            rr = float(np.median([r['warm_rate'] / max(r['cool_rate'], 1e-12) for r in late]))
+            # Walter et al. separate the regimes by where the TIME goes: canonical
+            # events cool fast and warm slowly; non-canonical ones open with a
+            # sharp drop, keep cooling for hours, then warm quickly. A sharp first
+            # drop makes the fastest cooling rate high in BOTH, so the rate ratio
+            # alone misclassifies non-canonical events; the duration ratio does not.
+            dr = cr / max(wr, 1e-12)
+            if dr > 1.5:
+                shape = 'non-canonical (cools for longer than it warms)'
+            elif dr < 1 / 1.5:
+                shape = 'canonical (warms for longer than it cools)'
+            else:
+                shape = 'roughly symmetric'
+            print(f"   spun-up events ({len(late)}), median: cooling {cr:.2f} h, warming {wr:.2f} h "
+                  f"-> duration ratio {dr:.2f}, fastest warm/cool rate {rr:.2f}  -> {shape}")
     print("\n   Walter et al.: bore period 6-20 h; warm front >= 1 degC in ~5 min "
           "(0.2 degC/min)")
 
