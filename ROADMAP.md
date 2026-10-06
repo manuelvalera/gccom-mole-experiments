@@ -156,6 +156,40 @@ Verify by propagating the mode across a flat domain at the computed speed.
 
 ## Stage 3 — WHERE THIS WAS LEFT (resume here)
 
+CORRECTION (from Walter et al.'s own setup files, rectddatafromsuntansmodel.zip:
+model_setup.m, mb_modes.m, higher_modes.m, umode.mat, realdepth.mat).
+
+- Their model stratification is a two-tanh fit to the MBARI C1 cast of
+  1 April 2010 (CTD.cast(215)). MRY_profile.txt / mry_N.txt match that fit to
+  within 0.1 degC: the profile used from the start WAS their model profile. The
+  section below calling it late-summer and the C1 18 May 2010 cast "the missing
+  piece" is wrong as a statement about reproducing their model; the May cast is
+  a different, more upwelling-like stratification -- a realism experiment.
+- Their model did NOT use the measured bathymetry. Two analytic profiles over
+  20 km, 5 to 81 m deep: xi ~ 2 has a wall-like step (15 -> 50 m within ~500 m,
+  slope up to 0.083 at 31 m depth), matching the real transect along their bore
+  path (13 -> 42 m in one 200 m step); xi ~ 0.2 is ten times gentler. Our
+  transect rises through those depths over ~1 km (slope ~0.03), and every grid
+  so far was built with 200 m smoothing, which flattens a step that narrow. So
+  at the mooring we have been nearer xi ~ 0.7-1 than 2 -- the likeliest reason
+  the shape stayed canonical.
+- Their forcing: mode-1 velocity profile (umode, hydrostatic rigid-lid modes,
+  80 m column, 1 m levels) imposed at the boundary, not relaxed in a sponge.
+  The amplitude is not in the archive (it would be in the SUNTANS run files).
+
+GRID: every shelf run so far used the ridge benchmark's default --bulge 0.15,
+which bows the columns (~20 deg near surface and bed, up to 80 deg at the shallow
+end) while the drift diagnostic still read "sigma grid". Add --bulge 0 to every
+shelf run; mry_setup.py now also puts the deep end on the left, which Walter's
+profile needs (it was being run mirrored, forced on top of the slope).
+
+NEXT: their bathymetry with their stratification.
+
+    python walter_bathy.py --case noncanonical -o walter_xi2.csv
+    python mry_setup.py --bathy walter_xi2.csv --out grids/walter_xi2 --smooth 0
+    --gridname walter_xi2 --Lx 20000 --D0 81.0 --nprofile mry_N.txt ...
+
+
 The stratification was the missing piece. The profile used throughout
 (MRY_profile.txt, a 7-Gaussian fit) is late-summer: 0.73 degC rms from the
 August M1 climatology, 1.87 from May, with a weak surface layer and a

@@ -553,6 +553,35 @@ def tridiag_columns(a, bd, c, d, xp):
     return x
 
 
+def sigma_from_tfi(X, Z):
+    """An exact sigma grid with the same bed, surface and node counts.
+
+    X, Z are gridGen's (xi, eta) node arrays. The bed and surface curves are read
+    off the eta = 0 and eta = 1 node rows (whichever is deeper is the bed),
+    resampled at uniformly spaced x, and every column is filled with uniformly
+    spaced levels between them.
+    """
+    nxi, neta = X.shape
+    jb = 0 if Z[:, 0].mean() < Z[:, -1].mean() else neta - 1
+    jt = neta - 1 - jb
+    xs = np.linspace(float(X.min()), float(X.max()), nxi)
+    ob = np.argsort(X[:, jb])
+    ot = np.argsort(X[:, jt])
+    zb = np.interp(xs, X[ob, jb], Z[ob, jb])
+    zt = np.interp(xs, X[ot, jt], Z[ot, jt])
+    t = np.linspace(0.0, 1.0, neta)
+    if jb != 0:
+        t = t[::-1]
+    Xs = np.repeat(xs[:, None], neta, axis=1)
+    Zs = zb[:, None] + (zt - zb)[:, None] * t[None, :]
+    # keep gridGen's ordering along xi, so the orientation the rest of the
+    # solver expects is unchanged
+    if X[0, 0] > X[-1, 0]:
+        Xs = Xs[::-1, :]
+        Zs = Zs[::-1, :]
+    return Xs, Zs
+
+
 def pull(oc, nm):
     oc.eval(f"[ii,jj,vv]=find({nm}); sz=size({nm});")
     return sp.csr_matrix(
@@ -955,6 +984,16 @@ def main():
                          '896x351, residual 3e-16). '
                          'multithreaded (threads: MKL_NUM_THREADS). Verify any '
                          'change of solver against --seiche before trusting it.')
+    ap.add_argument('--sigma', action='store_true',
+                    help='replace the TFI grid by an exact sigma grid: columns at\n'
+                         'uniformly spaced x, each row a fixed fraction of the local\n'
+                         'depth. gridGen spaces nodes by arc length along each\n'
+                         'boundary curve; over a steep bed the bottom nodes bunch up\n'
+                         'in x relative to the flat surface, TFI joins mismatched\n'
+                         'nodes, and the columns lean -- 60-80 degrees off orthogonal\n'
+                         'at the step of Walter et al.\'s bathymetry. The bed itself\n'
+                         'is taken from the gridGen bottom curve, so the geometry is\n'
+                         'unchanged; only the interior nodes move.')
     ap.add_argument('--cache', default='.gridcache',
                     help='directory for cached grids and operators')
     ap.add_argument('--no-cache', dest='no_cache', action='store_true',
@@ -1127,6 +1166,10 @@ def main():
         if use_cache:
             _atomic_savez(gpath, X=X, Z=Z)
 
+    if g.sigma:
+        X, Z = sigma_from_tfi(X, Z)
+        print(f"  [{el()}] --sigma: columns at uniform x, rows at fixed fractions of "
+              f"the local depth (bed taken from the gridGen bottom curve)", flush=True)
     ok = grid_diag(X, Z, g.nx, g.nz, phi_nh, g.lock > 0)
     if g.gridonly:
         if oc is not None: oc.exit()
@@ -1147,7 +1190,11 @@ def main():
     dxr, dzr = LX / m, D0 / n
     _names = ('G', 'D', 'B', 'Ic', 'Idf')
     if use_cache:
-        okey = _key(dict(grid=gkey, order=g.order, alpha=g.alpha))
+        _od = dict(grid=gkey, order=g.order, alpha=g.alpha)
+        if g.sigma:
+            # only added when set, so existing operator caches keep their keys
+            _od['sigma'] = True
+        okey = _key(_od)
         opath = os.path.join(g.cache, f"ops_{okey}.npz")
     if use_cache and os.path.isfile(opath):
         (G, D, B, Ic, Idf), J2 = _unpack_ops(np.load(opath), _names)

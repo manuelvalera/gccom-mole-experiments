@@ -30,6 +30,16 @@ def analyse(path, thresh, smooth_s, alpha, T0):
     d = np.load(path)
     t = d['t']
     temp = T0 + d['b'][:, 0] / (9.80665 * alpha)       # lowest sensor
+    # a run that diverged ends in NaN; one bad sample would poison the minimum
+    # and every threshold derived from it, so keep only what came before
+    # Cut at the first sample that is non-finite or physically impossible: a
+    # diverging run grows through enormous finite values before it turns NaN,
+    # and those would swamp every threshold derived from the record.
+    bad = ~np.isfinite(temp) | (np.abs(temp - temp[0]) > 20.0)
+    if bad.any():
+        k = int(np.argmax(bad))
+        t = t[:k]
+        temp = temp[:k]
     T = float(d['T'])
     dt = float(np.median(np.diff(t)))
     k = max(int(round(smooth_s / dt)), 1)

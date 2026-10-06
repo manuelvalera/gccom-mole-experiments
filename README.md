@@ -272,11 +272,19 @@ of drift and harmless. On an 88 m-deep, 20 km shelf the same machinery drifts
 ~490 m, and the cells were a median **64° from orthogonal offshore and 81–83° on
 the slope** — the solver's own `grid angle` line reported 5.8°–170.5° throughout.
 Several operators neglect cross-derivatives on the assumption of near-orthogonal
-cells, and every run-up failure sat where the skew was worst. With uniform
-stretching (`--bt 0.01 --bb 0.01`) the lines are vertical and the skew drops to a
-median 4–7° offshore and 17° on the slope; what remains beyond 9 km is the
-measured seabed itself steepening toward the 10 m contour, which terrain-following
-coordinates cannot avoid. On the skewed grid every run at 3981×89 died at the
+cells, and every run-up failure sat where the skew was worst. Uniform
+stretching (`--bt 0.01 --bb 0.01`) removed the drift, but a second ridge-benchmark
+default was still active: `--bulge 0.15` bows both side walls inward by 0.15 D0,
+and TFI blends that bow into every column. The top-to-bottom drift stays zero, so
+the diagnostics kept reporting a sigma grid, while cells sat ~20° off orthogonal
+near the surface and bed and up to 80° at the shallow end, where a 12 m bow spans
+5 m of depth. `grid_view.py --skew` on the grid a run actually used is what showed
+it. With `--bulge 0` as well, the worst cell on Walter et al.'s steep profile is
+4.7°, the angle of the bottom slope itself.
+
+![Grid skewness on Walter et al.'s steep profile with the default side-wall bulge](docs/figures/grid_walter_bulge015.png)
+
+![The same grid with --bulge 0: a true sigma grid](docs/figures/grid_walter_bulge0.png) On the skewed grid every run at 3981×89 died at the
 run-up; on the sigma grid the same configuration runs all eight periods. Results
 computed on the skewed mry20 grid earlier in this work should be read with that
 in mind.
@@ -335,7 +343,7 @@ python centroid_track.py val-npz
 | `--lat`, `--fcor` | rotation |
 | `--nu`, `--kappa`, `--nusub` | viscosity and diffusivity, sub-cycled against the thinnest cells |
 | `--kconv` | convective adjustment where N² < 0, implicit per column (§6) |
-| `--bt`, `--bb` | grid stretching; `0.01 0.01` gives a sigma grid, which the shelf needs |
+| `--bt`, `--bb`, `--bulge` | grid stretching and side-wall bow; `--bt 0.01 --bb 0.01 --bulge 0` gives a true sigma grid, which the shelf needs |
 | `--mode1 A`, `--lock G` | mode-1 boundary forcing; lock release |
 | `--moor ISOBATH MAB...` | virtual mooring sampled every step |
 | `--savestate T`, `--restart FILE` | checkpoint and resume (resumes by time, so `--spp` may change) |
@@ -353,7 +361,7 @@ python centroid_track.py val-npz
 | performance | `solver_bench.py`, `speed_check.ps1`, `gpu_check.ps1`, `gpu_bench.ps1` |
 | nonlinear operators | `advect_test.py`, `lock_test.ps1`, `beam_nonlinear.ps1` |
 | mode-1 forcing | `mode1.py`, `phase_speed.py` |
-| Monterey bores | `mry_setup.py`, `mry_bore.ps1`, `mry_fig10.ps1`, `thermistors.py`, `snapzoom.py` |
+| Monterey bores | `mry_setup.py`, `walter_bathy.py`, `ctd_profile.py`, `thermistors.py`, `events.py`, `instab_anim.py`, `grid_view.py`, `snapzoom.py` |
 | animations | `animate.py`, `animate3.ps1`, `animate_web.ps1` |
 
 Saved fields (`*.npz`) and the cache are not tracked; the scripts regenerate

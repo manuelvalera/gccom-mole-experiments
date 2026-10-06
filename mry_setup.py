@@ -189,6 +189,15 @@ def main():
     g = ap.parse_args()
 
     s, h = read_transect(g.bathy)
+    # The solver imposes its offshore forcing in the LEFT sponge and treats the
+    # right end as the shore, so the deep end must come first. The measured
+    # transect happens to be stored that way; a profile written shallow-end
+    # first (walter_bathy.py, for one) would otherwise come out mirrored, with
+    # the wave forced on top of the slope and the mooring inside the forcing.
+    if h[0] < h[-1]:
+        s = s.max() - s[::-1]
+        h = h[::-1]
+        print("orientation   reversed so the deep end is offshore (left)")
     if g.shore > 0:
         # Extrapolate the shallow end at its own measured slope. The fit uses
         # the last --shorefit metres rather than the last two points, so a
