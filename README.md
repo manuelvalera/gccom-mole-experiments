@@ -218,6 +218,8 @@ resolution (3981 × 81 cells: dx = 5 m, dz = 1 m at 81 m depth), six periods:
 
 ![15 m mooring, gentle slope](docs/figures/walter_xi02_full_15m.png)
 
+![Both runs side by side, t/T 2.6 to 6: temperature near the shore with isotherms, and the two 2 mab records with a cursor](docs/figures/walter_bores.gif)
+
 On the gentle slope the wave steepens into a bore offshore and arrives as a
 cold front lasting minutes that fills the column, then relaxes over hours. On
 the step the surge is bottom-trapped and cools the lower few metres for hours
